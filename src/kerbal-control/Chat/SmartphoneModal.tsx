@@ -601,9 +601,9 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
         </div>
 
         {/* Screen — single scrollable surface, fully rounded inside */}
-        <div className="flex-1 flex flex-col text-white rounded-[2.4rem] overflow-hidden px-1" style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 100%)', margin: 4 }}>
-          {/* Status bar */}
-          <div className="flex items-center justify-between px-5 pt-3 pb-1 text-[10px] text-zinc-300 shrink-0">
+        <div className="flex-1 flex flex-col text-white rounded-[2.4rem] overflow-hidden px-3" style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 100%)', margin: 4 }}>
+          {/* Status bar — extra horizontal padding keeps icons inside the ~45px corner radius */}
+          <div className="flex items-center justify-between px-6 pt-6 pb-1 text-[10px] text-zinc-300 shrink-0">
             <span className="font-semibold tracking-wide">
               {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>

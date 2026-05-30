@@ -759,8 +759,8 @@ const RoomCanvas: React.FC = () => {
   const handleAngleRef = useRef(0);
   /** Timer ID for auto-closing the door after a kerbal passes through. */
   const doorAutoCloseTimerRef = useRef<number | null>(null);
-  /** Tracks whether user manually opened the door (prevents auto-close). */
-  const doorManualOpenRef = useRef(false);
+  /** Knock timer (ms timestamp) — tiny shake when user clicks the door. */
+  const doorKnockRef = useRef(0);
 
   /**
    * Tracks kerbals that are currently in an entering or leaving transition,
@@ -941,12 +941,8 @@ const RoomCanvas: React.FC = () => {
     const doorW = displayW * DOOR_WIDTH_RATIO;
     const doorH = displayH * DOOR_HEIGHT_RATIO;
     if (x >= doorX - doorW / 2 && x <= doorX + doorW / 2 && y >= doorY - doorH && y <= doorY) {
-      doorOpenRef.current = !doorOpenRef.current;
-      doorManualOpenRef.current = doorOpenRef.current;
-      if (!doorOpenRef.current && doorAutoCloseTimerRef.current !== null) {
-        clearTimeout(doorAutoCloseTimerRef.current);
-        doorAutoCloseTimerRef.current = null;
-      }
+      // Gentle knock — just a tiny shake, not a full door swing-open
+      doorKnockRef.current = performance.now() + 400; // 400ms of shaking
     }
   }, []);
 
@@ -990,7 +986,18 @@ const RoomCanvas: React.FC = () => {
     doorVelocityRef.current = doorVelocityRef.current * damping + force;
     doorSwingRef.current += doorVelocityRef.current;
 
-    // ---- 3b1. Animate door handle rotation ----
+    // ---- 3b1. Door knock — tiny shake on click (does NOT open the door) ----
+    const knockEnd = doorKnockRef.current;
+    if (knockEnd > performance.now()) {
+      const elapsed = performance.now() - (knockEnd - 400);
+      // Decaying sine shake: amplitude 0.04 rad, frequency 30 rad/s
+      const shake = Math.sin(elapsed * 0.03) * 0.04 * Math.max(0, 1 - elapsed / 400);
+      doorSwingRef.current += shake;
+    } else {
+      doorKnockRef.current = 0;
+    }
+
+    // ---- 3b2. Animate door handle rotation ----
     const DOOR_HANDLE_OPEN_ANGLE = 0.6;
     const targetHandleAngle = doorOpenRef.current ? DOOR_HANDLE_OPEN_ANGLE : 0;
     handleAngleRef.current += (targetHandleAngle - handleAngleRef.current) * 0.12;
@@ -1015,7 +1022,7 @@ const RoomCanvas: React.FC = () => {
         clearTimeout(doorAutoCloseTimerRef.current);
         doorAutoCloseTimerRef.current = null;
       }
-    } else if (doorOpenRef.current && !doorManualOpenRef.current && doorAutoCloseTimerRef.current === null) {
+    } else if (doorOpenRef.current && doorAutoCloseTimerRef.current === null) {
       doorAutoCloseTimerRef.current = window.setTimeout(() => {
         doorOpenRef.current = false;
         doorAutoCloseTimerRef.current = null;
