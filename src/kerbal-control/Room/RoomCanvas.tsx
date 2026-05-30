@@ -759,8 +759,6 @@ const RoomCanvas: React.FC = () => {
   const handleAngleRef = useRef(0);
   /** Timer ID for auto-closing the door after a kerbal passes through. */
   const doorAutoCloseTimerRef = useRef<number | null>(null);
-  /** Knock timer (ms timestamp) — tiny shake when user clicks the door. */
-  const doorKnockRef = useRef(0);
 
   /**
    * Tracks kerbals that are currently in an entering or leaving transition,
@@ -926,27 +924,6 @@ const RoomCanvas: React.FC = () => {
   }, []);
 
   // -----------------------------------------------------------------------
-  // Door click handler — toggle door open/close when clicked on door area
-  // -----------------------------------------------------------------------
-
-  const handleDoorClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const { displayW, displayH } = sizesRef.current;
-    const doorX = (DOOR_POSITION.x / 100) * displayW;
-    const doorY = (DOOR_POSITION.y / 100) * displayH;
-    const doorW = displayW * DOOR_WIDTH_RATIO;
-    const doorH = displayH * DOOR_HEIGHT_RATIO;
-    if (x >= doorX - doorW / 2 && x <= doorX + doorW / 2 && y >= doorY - doorH && y <= doorY) {
-      // Gentle knock — just a tiny shake, not a full door swing-open
-      doorKnockRef.current = performance.now() + 400; // 400ms of shaking
-    }
-  }, []);
-
-  // -----------------------------------------------------------------------
   // Main render loop
   // -----------------------------------------------------------------------
 
@@ -986,16 +963,6 @@ const RoomCanvas: React.FC = () => {
     doorVelocityRef.current = doorVelocityRef.current * damping + force;
     doorSwingRef.current += doorVelocityRef.current;
 
-    // ---- 3b1. Door knock — tiny shake on click (does NOT open the door) ----
-    const knockEnd = doorKnockRef.current;
-    if (knockEnd > performance.now()) {
-      const elapsed = performance.now() - (knockEnd - 400);
-      // Decaying sine shake: amplitude 0.04 rad, frequency 30 rad/s
-      const shake = Math.sin(elapsed * 0.03) * 0.04 * Math.max(0, 1 - elapsed / 400);
-      doorSwingRef.current += shake;
-    } else {
-      doorKnockRef.current = 0;
-    }
 
     // ---- 3b2. Animate door handle rotation ----
     const DOOR_HANDLE_OPEN_ANGLE = 0.6;
@@ -1462,8 +1429,7 @@ const RoomCanvas: React.FC = () => {
     >
       <canvas
         ref={canvasRef}
-        className="block rounded shadow-2xl cursor-pointer"
-        onClick={handleDoorClick}
+        className="block rounded shadow-2xl"
       />
     </div>
   );
