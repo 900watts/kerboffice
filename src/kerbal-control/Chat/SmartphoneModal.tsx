@@ -119,6 +119,87 @@ async function getSoulCached(kerbalName: string): Promise<KerbalSoul> {
 }
 
 // ---------------------------------------------------------------------------
+// BanterToggle — iOS-style toggle for Kerbal Banter
+// ---------------------------------------------------------------------------
+
+const IDLE_CONFIG_KEY = 'kerbal-control:idle-config';
+
+/** Read banter enabled from localStorage (handles missing/corrupt data). */
+function readBanterEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(IDLE_CONFIG_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed.enabled === true;
+    }
+  } catch { /* corrupt data — default off */ }
+  return false;
+}
+
+/** Write banter enabled to localStorage and sync with idleBanter singleton. */
+function writeBanterEnabled(enabled: boolean): void {
+  try {
+    const raw = localStorage.getItem(IDLE_CONFIG_KEY);
+    const config = raw ? JSON.parse(raw) : {};
+    config.enabled = enabled;
+    localStorage.setItem(IDLE_CONFIG_KEY, JSON.stringify(config));
+  } catch { /* ignore storage errors */ }
+  idleBanter.updateConfig({ enabled });
+}
+
+const BanterToggle: React.FC = () => {
+  const [banterOn, setBanterOn] = useState(() => readBanterEnabled());
+  const toggleId = 'banter-toggle';
+
+  const handleToggle = useCallback(() => {
+    const next = !banterOn;
+    setBanterOn(next);
+    writeBanterEnabled(next);
+  }, [banterOn]);
+
+  return (
+    <div className="flex items-center justify-between py-1">
+      <label htmlFor={toggleId} style={{ color: '#aaa', fontSize: 12, cursor: 'pointer' }}>
+        Kerbal Banter
+      </label>
+      <button
+        id={toggleId}
+        type="button"
+        role="switch"
+        aria-checked={banterOn}
+        onClick={handleToggle}
+        style={{
+          position: 'relative',
+          width: 44,
+          height: 24,
+          borderRadius: 12,
+          border: 'none',
+          cursor: 'pointer',
+          background: banterOn ? '#34c759' : '#39393f',
+          transition: 'background 0.2s',
+          padding: 0,
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            position: 'absolute',
+            top: 2,
+            left: banterOn ? 22 : 2,
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            background: '#fff',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            transition: 'left 0.2s',
+          }}
+        />
+      </button>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // SmartphoneModal
 // ---------------------------------------------------------------------------
 
