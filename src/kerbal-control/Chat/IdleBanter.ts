@@ -194,6 +194,16 @@ export class IdleBanter {
 
   private tick(): void {
     if (!this.isRunning) return;
+
+    // Refresh enabled flag from localStorage so external toggles stay in sync
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        this.config.enabled = parsed.enabled === true;
+      }
+    } catch { /* corrupt data — use existing config */ }
+
     if (this.config.frequency === 'never' || !this.config.enabled) return;
     if (this.roundInProgress) return;
 

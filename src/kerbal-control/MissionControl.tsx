@@ -23,6 +23,7 @@ export default function MissionControl() {
   const [soulsLoaded, setSoulsLoaded] = useState(false);
   const [shiftNotification, setShiftNotification] = useState<string | null>(null);
   const [unreadPhoneCount, setUnreadPhoneCount] = useState(0);
+  const [perContactUnread, setPerContactUnread] = useState<Record<string, number>>({});
 
   // Keep ref in sync for the one-time effect subscribers that capture it
   useEffect(() => {
@@ -58,6 +59,16 @@ export default function MissionControl() {
     idleBanter.markActivity();
   }, []);
 
+  /** Clear per-contact unread count when a specific thread is opened. */
+  const handleOpenThread = useCallback((kerbalName: string) => {
+    setPerContactUnread((prev) => {
+      if (!prev[kerbalName]) return prev;
+      const next = { ...prev };
+      delete next[kerbalName];
+      return next;
+    });
+  }, []);
+
   // -----------------------------------------------------------------------
   // Mount / lifecycle
   // -----------------------------------------------------------------------
@@ -77,11 +88,9 @@ export default function MissionControl() {
     idleBanter.start();
 
     // Subscribe to banter events (capped at 200 to prevent unbounded growth)
+    // Banter messages do NOT increment unread counts — only DM/proactive messages do
     const unsubBanter = idleBanter.onBanter((message: BanterMessage) => {
       setBanterMessages((prev) => [...prev.slice(-199), message]);
-      if (!smartphoneOpenRef.current) {
-        setUnreadPhoneCount((c) => c + 1);
-      }
     });
 
     const unsubProactive = proactiveAgent.onMessage((msg: ProactiveMessage) => {
@@ -93,6 +102,10 @@ export default function MissionControl() {
       });
       if (!smartphoneOpenRef.current) {
         setUnreadPhoneCount((c) => c + 1);
+        setPerContactUnread((prev) => ({
+          ...prev,
+          [msg.kerbalName]: (prev[msg.kerbalName] || 0) + 1,
+        }));
       }
     });
 
@@ -205,7 +218,12 @@ export default function MissionControl() {
       </div>
 
       {/* Smartphone modal */}
-      <SmartphoneModal isOpen={smartphoneOpen} onClose={() => setSmartphoneOpen(false)} />
+      <SmartphoneModal
+        isOpen={smartphoneOpen}
+        onClose={() => setSmartphoneOpen(false)}
+        perContactUnread={perContactUnread}
+        onOpenThread={handleOpenThread}
+      />
 
       <NotificationBanner
         message={bannerMessage}
