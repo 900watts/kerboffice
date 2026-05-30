@@ -480,7 +480,7 @@ const DOOR_WIDTH_RATIO = 0.08;
 const DOOR_HEIGHT_RATIO = 0.22;
 
 /** Draw the exit door on the back wall near the entrance. */
-function drawDoor(ctx: CanvasRenderingContext2D, displayW: number, displayH: number, swingAngle: number = 0): void {
+function drawDoor(ctx: CanvasRenderingContext2D, displayW: number, displayH: number, swingAngle: number = 0, handleAngle: number = 0): void {
   const cx = (DOOR_POSITION.x / 100) * displayW;
   const cy = (DOOR_POSITION.y / 100) * displayH;
   const dw = displayW * DOOR_WIDTH_RATIO;
@@ -493,6 +493,16 @@ function drawDoor(ctx: CanvasRenderingContext2D, displayW: number, displayH: num
     ctx.translate(cx - dw / 2, cy);
     ctx.rotate(swingAngle);
     ctx.translate(-(cx - dw / 2), -cy);
+  }
+
+  // Outside light through door gap (draw before door so it appears behind)
+  if (swingAngle < -0.1) {
+    const gapWidth = Math.abs(swingAngle) / (Math.PI / 2.5) * dw * 0.3;
+    const grad = ctx.createLinearGradient(cx - dw / 2 + dw - gapWidth, 0, cx - dw / 2 + dw, 0);
+    grad.addColorStop(0, 'rgba(255,200,100,0)');
+    grad.addColorStop(1, 'rgba(255,200,100,0.3)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(cx - dw / 2 + dw - gapWidth, cy - dh, gapWidth, dh);
   }
 
   // Door frame (darker wood)
@@ -511,17 +521,20 @@ function drawDoor(ctx: CanvasRenderingContext2D, displayW: number, displayH: num
   ctx.fillStyle = '#5a3d2f';
   ctx.fillRect(cx - dw / 2 + 5 * s, cy - dh * 0.5, dw - 10 * s, dh * 0.38);
 
-  // Door handle (brass)
+  // Door handle (brass) — rotates when door opens
+  ctx.save();
+  ctx.translate(cx + dw / 2 - 6 * s, cy - dh / 2);
+  ctx.rotate(handleAngle);
   ctx.fillStyle = '#cd9b4a';
   ctx.beginPath();
-  ctx.arc(cx + dw / 2 - 6 * s, cy - dh / 2, 3 * s, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 3 * s, 1.5 * s, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  // Thin brass highlight on handle
+  // Handle highlight
   ctx.fillStyle = '#deb76a';
   ctx.beginPath();
-  ctx.arc(cx + dw / 2 - 6 * s, cy - dh / 2, 1.5 * s, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 1.5 * s, 0.8 * s, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
   ctx.restore();
 
@@ -740,6 +753,14 @@ const RoomCanvas: React.FC = () => {
   const doorOpenRef = useRef(false);
   /** Interpolated swing angle for smooth animation. */
   const doorSwingRef = useRef(0);
+  /** Angular velocity for spring-physics door swing. */
+  const doorVelocityRef = useRef(0);
+  /** Door handle rotation angle (0 = neutral, positive = turned). */
+  const handleAngleRef = useRef(0);
+  /** Timer ID for auto-closing the door after a kerbal passes through. */
+  const doorAutoCloseTimerRef = useRef<number | null>(null);
+  /** Tracks whether user manually opened the door (prevents auto-close). */
+  const doorManualOpenRef = useRef(false);
 
   /**
    * Tracks kerbals that are currently in an entering or leaving transition,
@@ -921,6 +942,11 @@ const RoomCanvas: React.FC = () => {
     const doorH = displayH * DOOR_HEIGHT_RATIO;
     if (x >= doorX - doorW / 2 && x <= doorX + doorW / 2 && y >= doorY - doorH && y <= doorY) {
       doorOpenRef.current = !doorOpenRef.current;
+      doorManualOpenRef.current = doorOpenRef.current;
+      if (!doorOpenRef.current && doorAutoCloseTimerRef.current !== null) {
+        clearTimeout(doorAutoCloseTimerRef.current);
+        doorAutoCloseTimerRef.current = null;
+      }
     }
   }, []);
 
@@ -956,9 +982,45 @@ const RoomCanvas: React.FC = () => {
       sprite.update(deltaTime);
     }
 
-    // ---- 3b. Animate door swing ----
-    const targetAngle = doorOpenRef.current ? -Math.PI / 2.5 : 0;
-    doorSwingRef.current += (targetAngle - doorSwingRef.current) * 0.08;
+    // ---- 3b. Animate door with spring physics (overshoot + oscillation) ----
+    const DOOR_TARGET_ANGLE = doorOpenRef.current ? -Math.PI / 2.5 : 0;
+    const stiffness = 0.03;
+    const damping = 0.85;
+    const force = (DOOR_TARGET_ANGLE - doorSwingRef.current) * stiffness;
+    doorVelocityRef.current = doorVelocityRef.current * damping + force;
+    doorSwingRef.current += doorVelocityRef.current;
+
+    // ---- 3b1. Animate door handle rotation ----
+    const DOOR_HANDLE_OPEN_ANGLE = 0.6;
+    const targetHandleAngle = doorOpenRef.current ? DOOR_HANDLE_OPEN_ANGLE : 0;
+    handleAngleRef.current += (targetHandleAngle - handleAngleRef.current) * 0.12;
+
+    // ---- 3b2. Auto-open door when kerbals approach/leave ----
+    const doorPosX = (DOOR_POSITION.x / 100) * displayW;
+    const doorPosY = (DOOR_POSITION.y / 100) * displayH;
+    let kerbalNearDoor = false;
+    for (const sprite of spritesRef.current.values()) {
+      if (sprite.state === 'entering' || sprite.state === 'leaving') {
+        const pos = sprite.getPosition();
+        const dist = Math.hypot(pos.x - doorPosX, pos.y - doorPosY);
+        if (dist < 10) {
+          kerbalNearDoor = true;
+          break;
+        }
+      }
+    }
+    if (kerbalNearDoor) {
+      doorOpenRef.current = true;
+      if (doorAutoCloseTimerRef.current !== null) {
+        clearTimeout(doorAutoCloseTimerRef.current);
+        doorAutoCloseTimerRef.current = null;
+      }
+    } else if (doorOpenRef.current && !doorManualOpenRef.current && doorAutoCloseTimerRef.current === null) {
+      doorAutoCloseTimerRef.current = window.setTimeout(() => {
+        doorOpenRef.current = false;
+        doorAutoCloseTimerRef.current = null;
+      }, 2000);
+    }
 
     // ---- 3c. Check for bathroom/lunch kerbals ready to return ----
     const { displayW: dw, displayH: dh } = sizesRef.current;
@@ -1175,7 +1237,7 @@ const RoomCanvas: React.FC = () => {
           break;
         }
         case 'door': {
-          drawDoor(ctx, displayW, displayH, doorSwingRef.current);
+          drawDoor(ctx, displayW, displayH, doorSwingRef.current, handleAngleRef.current);
           break;
         }
       }
@@ -1373,6 +1435,9 @@ const RoomCanvas: React.FC = () => {
       clearInterval(activityInterval);
       clearInterval(coffeeInterval);
       window.removeEventListener('resize', handleResize);
+      if (doorAutoCloseTimerRef.current !== null) {
+        clearTimeout(doorAutoCloseTimerRef.current);
+      }
       unsubTime();
       unsubStore();
       unsubProactive();

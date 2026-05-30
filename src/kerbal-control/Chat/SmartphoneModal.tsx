@@ -41,7 +41,7 @@ export interface ThreadMessage {
   isGroggy?: boolean;
 }
 
-type ViewMode = 'contacts' | 'thread' | 'settings';
+type ViewMode = 'home' | 'contacts' | 'thread' | 'settings';
 
 // ---------------------------------------------------------------------------
 // localStorage persistence
@@ -212,7 +212,7 @@ export interface SmartphoneModalProps {
 
 const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perContactUnread = {}, onOpenThread }) => {
   const [visible, setVisible] = useState(false);
-  const [view, setView] = useState<ViewMode>('contacts');
+  const [view, setView] = useState<ViewMode>('home');
   const [activeKerbal, setActiveKerbal] = useState<KerbalState | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -242,6 +242,16 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
     };
   }, []);
 
+  // Sync phone clock with system time every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (mountedRef.current) {
+        setCurrentTime(new Date());
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -264,7 +274,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
   // Reset state when fully closed
   useEffect(() => {
     if (!isOpen && !visible) {
-      setView('contacts');
+      setView('home');
       setActiveKerbal(null);
       setMessages([]);
       setInputValue('');
@@ -503,6 +513,16 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
     saveThreads(saved);
   }, [messages, activeKerbal, view]);
 
+  const backToHome = useCallback(() => {
+    setView('home');
+    setActiveKerbal(null);
+    setMessages([]);
+    setInputValue('');
+    setIsSummoning(false);
+    setIsGenerating(false);
+    setSummonError(null);
+  }, []);
+
   const backToContacts = useCallback(() => {
     setView('contacts');
     setActiveKerbal(null);
@@ -581,7 +601,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
         </div>
 
         {/* Screen — single scrollable surface, fully rounded inside */}
-        <div className="flex-1 flex flex-col text-white rounded-[2.4rem] overflow-hidden" style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 100%)', margin: 3 }}>
+        <div className="flex-1 flex flex-col text-white rounded-[2.4rem] overflow-hidden px-1" style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 100%)', margin: 4 }}>
           {/* Status bar */}
           <div className="flex items-center justify-between px-5 pt-3 pb-1 text-[10px] text-zinc-300 shrink-0">
             <span className="font-semibold tracking-wide">
@@ -604,7 +624,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
             </div>
           </div>
 
-          {/* Header */}
+          {/* Header — context-aware back button */}
           <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
             {view === 'thread' ? (
               <button
@@ -615,11 +635,23 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
               >
                 &#8592;
               </button>
+            ) : view === 'contacts' || view === 'settings' ? (
+              <button
+                type="button"
+                className="text-blue-400 hover:text-blue-300 text-sm leading-none shrink-0 w-6 h-6 flex items-center justify-center"
+                onClick={backToHome}
+                aria-label="Back to Home"
+              >
+                &#8592;
+              </button>
             ) : (
               <div className="w-6 shrink-0" />
             )}
             <h2 className="text-sm font-semibold flex-1 truncate text-center">
-              {view === 'contacts' ? t('mc.contacts') : activeKerbal?.name ?? t('mc.chat')}
+              {view === 'home' && 'KSC'}
+              {view === 'contacts' && t('mc.contacts')}
+              {view === 'settings' && t('settings.title')}
+              {view === 'thread' && (activeKerbal?.name ?? t('mc.chat'))}
             </h2>
             <button
               type="button"
@@ -631,51 +663,66 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
             </button>
           </div>
 
-          {/* Bottom Tab Bar */}
-          <div className="flex shrink-0" style={{
+          {/* Home indicator — small pill at bottom, like iPhone */}
+          <div className="flex shrink-0 items-center justify-center py-2" style={{
             background: '#12121e',
             borderTop: '1px solid rgba(255,255,255,0.06)',
           }}>
-            <button
-              onClick={() => {
-                setView('contacts');
-                handleSettingsChange();
-              }}
-              className="flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 text-[10px] transition-colors"
-              style={{
-                background: view === 'contacts' ? 'rgba(255,255,255,0.06)' : 'transparent',
-                color: view === 'contacts' ? '#fff' : '#666',
-              }}
-            >
-              {/* Contacts icon */}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-              </svg>
-              <span style={{ fontWeight: view === 'contacts' ? 600 : 400 }}>{t('phone.contacts')}</span>
-            </button>
-            <button
-              onClick={() => setView('settings')}
-              className="flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 text-[10px] transition-colors"
-              style={{
-                background: view === 'settings' ? 'rgba(255,255,255,0.06)' : 'transparent',
-                color: view === 'settings' ? '#fff' : '#666',
-              }}
-            >
-              {/* Settings icon */}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-              </svg>
-              <span style={{ fontWeight: view === 'settings' ? 600 : 400 }}>{t('phone.settings')}</span>
-            </button>
+            <div className="w-20 h-[5px] rounded-full bg-zinc-500/40" />
           </div>
 
           {/* Body area */}
           <div className="flex-1 flex flex-col min-h-0">
-            {view === 'contacts' ? (
+            {view === 'home' ? (
+              /* --- Home screen with app icons --- */
+              <div className="flex-1 flex flex-col items-center justify-center px-6" style={{
+                background: 'linear-gradient(180deg, #0d0d1a 0%, #0a0a12 100%)',
+              }}>
+                {/* Time display */}
+                <div className="text-white/60 text-[11px] mb-8 font-light tracking-wider">
+                  {currentTime.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
+                </div>
+
+                {/* App icon grid */}
+                <div className="flex gap-6">
+                  {/* Contacts app */}
+                  <button
+                    onClick={() => setView('contacts')}
+                    className="flex flex-col items-center gap-1.5 group"
+                  >
+                    <div className="w-14 h-14 rounded-[1.1rem] flex items-center justify-center transition-transform group-hover:scale-105 active:scale-95" style={{
+                      background: 'linear-gradient(135deg, #1a73e8, #0d47a1)',
+                      boxShadow: '0 4px 12px rgba(26,115,232,0.3)',
+                    }}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                      </svg>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 font-medium">{t('phone.contacts')}</span>
+                  </button>
+
+                  {/* Settings app */}
+                  <button
+                    onClick={() => setView('settings')}
+                    className="flex flex-col items-center gap-1.5 group"
+                  >
+                    <div className="w-14 h-14 rounded-[1.1rem] flex items-center justify-center transition-transform group-hover:scale-105 active:scale-95" style={{
+                      background: 'linear-gradient(135deg, #6366f1, #3730a3)',
+                      boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
+                    }}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                      </svg>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 font-medium">{t('phone.settings')}</span>
+                  </button>
+                </div>
+              </div>
+            ) : view === 'contacts' ? (
               <ul className="flex-1 overflow-y-auto divide-y divide-zinc-800/50 overscroll-contain [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-track]:bg-transparent">
                 {kerbalStore.getAll().map((k) => {
                   const s = deriveStatus(k);

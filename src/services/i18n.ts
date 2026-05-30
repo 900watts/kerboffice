@@ -75,6 +75,7 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.repository': 'Repository',
     'settings.repositoryDesc': 'master \u2014 github.com/KSP-CKAN/CKAN-meta',
     'settings.manage': 'Manage',
+    'settings.banter': 'Kerbal Banter',
 
     // Mission Control
     'mc.loading': 'Loading Kerbal souls...',
@@ -235,6 +236,10 @@ const translations: Record<Language, Record<string, string>> = {
     'room.nightShift': 'NIGHT SHIFT',
     'room.crew': '{count} crew',
     'room.coffee': 'COFFEE',
+
+    // Phone home screen
+    'phone.contacts': 'Contacts',
+    'phone.settings': 'Settings',
   },
 
   zh: {
@@ -287,6 +292,7 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.repository': '\u4ED3\u5E93',
     'settings.repositoryDesc': 'master \u2014 github.com/KSP-CKAN/CKAN-meta',
     'settings.manage': '\u7BA1\u7406',
+    'settings.banter': 'Kerbal \u95F2\u804A',
 
     // Mission Control
     'mc.loading': '\u6B63\u5728\u52A0\u8F7D Kerbal \u7075\u9B42...',
@@ -447,6 +453,10 @@ const translations: Record<Language, Record<string, string>> = {
     'room.nightShift': '\u591C\u73ED',
     'room.crew': '{count} \u540D\u4EBA\u5458',
     'room.coffee': '\u5496\u5561',
+
+    // Phone home screen
+    'phone.contacts': '\u8054\u7CFB\u4EBA',
+    'phone.settings': '\u8BBE\u7F6E',
   },
 
   ja: {
@@ -499,6 +509,7 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.repository': '\u30EA\u30DD\u30B8\u30C8\u30EA',
     'settings.repositoryDesc': 'master \u2014 github.com/KSP-CKAN/CKAN-meta',
     'settings.manage': '\u7BA1\u7406',
+    'settings.banter': 'Kerbal \u96D1\u8AC7',
 
     // Mission Control
     'mc.loading': 'Kerbal \u30BD\u30A6\u30EB\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D...',
@@ -659,6 +670,10 @@ const translations: Record<Language, Record<string, string>> = {
     'room.nightShift': '\u591C\u52E4',
     'room.crew': '{count} \u540D',
     'room.coffee': '\u30B3\u30FC\u30D2\u30FC',
+
+    // Phone home screen
+    'phone.contacts': '\u9023\u7D61\u5148',
+    'phone.settings': '\u8A2D\u5B9A',
   },
 };
 
