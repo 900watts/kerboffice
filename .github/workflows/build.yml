@@ -1,0 +1,85 @@
+name: Build KerbOffice
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64]
+        platform: [win32]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend (Vite)
+        run: npm run build
+
+      - name: Compile Electron main process
+        run: npx tsc -p tsconfig.electron.json
+
+      - name: Package with @electron/packager
+        run: |
+          npx @electron/packager . "KerbOffice" `
+            --platform=${{ matrix.platform }} `
+            --arch=${{ matrix.arch }} `
+            --out=release `
+            --overwrite `
+            --asar `
+            --prune=true `
+            --ignore="\.git|\.github|node_modules/\.cache|src|electron|scripts|vite\.config\.ts|tsconfig\.*.json"
+
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path "release\KerbOffice-${{ matrix.platform }}-${{ matrix.arch }}\*" `
+            -DestinationPath "release\KerbOffice-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.zip" `
+            -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KerbOffice-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release\KerbOffice-${{ matrix.platform }}-${{ matrix.arch }}\*
+          if-no-files-found: error
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: KerbOffice-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.zip
+          path: release\KerbOffice-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            KerbOffice*/*.zip
+          generate_release_notes: true

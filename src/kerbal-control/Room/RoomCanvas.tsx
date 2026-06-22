@@ -6,6 +6,8 @@ import {
   DESK_POSITIONS,
   ENTRANCE_POSITION,
   DOOR_POSITION,
+  WINDOW_POSITION,
+  WINDOW_DIMENSIONS,
 } from './RoomLayout';
 import type { DeskPosition } from './RoomLayout';
 import { kerbalStore } from '../KerbalStore';
@@ -29,6 +31,9 @@ const ASPECT_RATIO = 16 / 9;
 /** How long a walk animation takes (ms). */
 const WALK_DURATION = 3000;
 
+/** Slower duration for leaving (walking toward exit — should look like a relaxed stroll). */
+const LEAVE_DURATION = 7000;
+
 /** Maximum number of coffee cups visible on desks at once. */
 const MAX_COFFEE_CUPS = 4;
 
@@ -38,7 +43,7 @@ const MAX_COFFEE_CUPS = 4;
 
 const FLOOR_Y_RATIO = 0.72;
 
-/** Draw the room background: solid walls, flat floor, baseboard trim, big screen, posters. */
+/** Draw the room background: KSC-themed walls, baseboard trim, floor grid, big screen, shift badge, posters. */
 function drawBackground(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -47,14 +52,33 @@ function drawBackground(
 ): void {
   const floorLine = h * FLOOR_Y_RATIO;
 
-  // ----- Wall: solid flat colour -----
+  // ----- Wall: KSC-themed panelled walls with orange/white accents -----
   const wallColor = lerpColor('#3d4450', '#1e2430', timeOfDay);
   ctx.fillStyle = wallColor;
   ctx.fillRect(0, 0, w, floorLine);
 
-  // Subtle wall texture — faint vertical panel seams
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-  ctx.lineWidth = 1;
+  // KSC orange accent stripe at the very top of the wall (like a warning band)
+  {
+    const stripeH = Math.max(4, h * 0.012);
+    const stripeGrad = ctx.createLinearGradient(0, 0, 0, stripeH);
+    stripeGrad.addColorStop(0, 'rgba(255, 120, 50, 0.4)');
+    stripeGrad.addColorStop(0.5, 'rgba(255, 120, 50, 0.7)');
+    stripeGrad.addColorStop(1, 'rgba(255, 120, 50, 0)');
+    ctx.fillStyle = stripeGrad;
+    ctx.fillRect(0, 0, w, stripeH);
+  }
+
+  // KSC orange/white vertical accent strips at wall edges
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.15)';
+  ctx.fillRect(0, 0, 3, floorLine);
+  ctx.fillRect(w - 3, 0, 3, floorLine);
+
+  // ----- Scenery window (left wall: KSC outdoor view) -----
+  drawSceneryWindow(ctx, w, h, timeOfDay);
+
+  // Paneled wall texture — more visible vertical seams with KSC orange tint
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 0.8;
   for (let px = w * 0.04; px < w * 0.96; px += w * 0.08) {
     ctx.beginPath();
     ctx.moveTo(px, 0);
@@ -62,41 +86,74 @@ function drawBackground(
     ctx.stroke();
   }
 
-  // Horizontal chair rail at mid-wall
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1.2;
+  // Horizontal chair rail at mid-wall with KSC orange accent
+  const chairRailY = floorLine * 0.55;
+  // Rail body
+  ctx.strokeStyle = 'rgba(255,140,60,0.3)';
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
-  ctx.moveTo(0, floorLine * 0.55);
-  ctx.lineTo(w, floorLine * 0.55);
+  ctx.moveTo(0, chairRailY);
+  ctx.lineTo(w, chairRailY);
+  ctx.stroke();
+  // Rail highlight (white line above rail)
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, chairRailY - 2);
+  ctx.lineTo(w, chairRailY - 2);
+  ctx.stroke();
+  // Rail shadow (darker line below rail)
+  ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, chairRailY + 2);
+  ctx.lineTo(w, chairRailY + 2);
   ctx.stroke();
 
-  // ----- Baseboard / trim -----
+  // Wall-bottom KSC orange accent strip at ~85% wall height
+  const accentY = floorLine * 0.85;
+  const accentH = 3;
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.25)';
+  ctx.fillRect(0, accentY, w, accentH);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.fillRect(0, accentY - 1, w, 1);
+
+  // ----- Baseboard / trim (KSC orange top edge) -----
   const baseboardH = h * 0.02;
   ctx.fillStyle = '#2a2d35';
   ctx.fillRect(0, floorLine - baseboardH, w, baseboardH);
-  // Baseboard top edge highlight
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 0.8;
+  // Baseboard top edge — KSC orange trim
+  ctx.strokeStyle = 'rgba(255, 140, 60, 0.5)';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(0, floorLine - baseboardH);
   ctx.lineTo(w, floorLine - baseboardH);
   ctx.stroke();
+  // Baseboard top edge white highlight (just above orange)
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(0, floorLine - baseboardH - 0.5);
+  ctx.lineTo(w, floorLine - baseboardH - 0.5);
+  ctx.stroke();
 
-  // ----- Flat floor (single solid colour, no gradient) -----
+  // ----- Floor: dark KSC-style with grid lines and orange accent -----
   const floorColor = lerpColor('#3d3c38', '#222120', timeOfDay);
   ctx.fillStyle = floorColor;
   ctx.fillRect(0, floorLine, w, h - floorLine);
 
-  // Floor tile grid — flat checkerboard for scale reference
+  // Floor tile grid
   const tileSize = h * 0.045;
-  ctx.strokeStyle = 'rgba(255,255,255,0.025)';
-  ctx.lineWidth = 0.6;
+  // Horizontal lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 0.5;
   for (let ty = floorLine + tileSize; ty < h; ty += tileSize) {
     ctx.beginPath();
     ctx.moveTo(0, ty);
     ctx.lineTo(w, ty);
     ctx.stroke();
   }
+  // Vertical lines
   for (let tx = tileSize; tx < w; tx += tileSize) {
     ctx.beginPath();
     ctx.moveTo(tx, floorLine);
@@ -104,14 +161,864 @@ function drawBackground(
     ctx.stroke();
   }
 
+  // Floor accent: KSC orange tile every 3rd row near walls
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.04)';
+  for (let row = 1; row < (h - floorLine) / tileSize; row += 3) {
+    const ry = floorLine + row * tileSize;
+    // Left accent strip
+    ctx.fillRect(0, ry, w * 0.04, tileSize);
+    // Right accent strip
+    ctx.fillRect(w * 0.96, ry, w * 0.04, tileSize);
+  }
+
+  // Floor center guideline (subtle, like KSC runway center line)
+  ctx.strokeStyle = 'rgba(255, 140, 60, 0.06)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 16]);
+  ctx.beginPath();
+  ctx.moveTo(w * 0.5, floorLine);
+  ctx.lineTo(w * 0.5, h);
+  ctx.stroke();
+  ctx.setLineDash([]); // reset
+
+  // Ambient warmth — warm orange glow from right side (launch-pad lighting spill)
+  const ambientGrad = ctx.createRadialGradient(w * 0.9, floorLine * 0.3, 0, w * 0.9, floorLine * 0.3, w * 0.6);
+  ambientGrad.addColorStop(0, `rgba(255, 140, 60, ${0.035 * (1 - timeOfDay * 0.5)})`);
+  ambientGrad.addColorStop(0.5, `rgba(255, 140, 60, ${0.015 * (1 - timeOfDay * 0.5)})`);
+  ambientGrad.addColorStop(1, 'rgba(255, 140, 60, 0)');
+  ctx.fillStyle = ambientGrad;
+  ctx.fillRect(0, 0, w, h);
+
   // ----- Big Screen -----
   drawBigScreen(ctx, w, h, floorLine);
 
   // ----- Shift badge -----
   drawShiftBadge(ctx, w, h, timeOfDay);
 
-  // ----- Posters / drawings -----
-  drawPosters(ctx, w, h);
+  // ----- Ceiling light (brightness follows time of day) -----
+  drawCeilingLight(ctx, w, h, timeOfDay);
+}
+
+// ==========================================================================
+// Scenery window — KSC outdoor view through the left wall
+// ==========================================================================
+
+// ---------------------------------------------------------------------------
+// Easter-egg state (re-evaluated periodically, not every frame)
+// ---------------------------------------------------------------------------
+
+interface EasterEggInfo {
+  visible: boolean;
+  type: 'mun' | 'ufo' | 'flying-kerbal' | 'duna' | 'mushroom' | '';
+}
+
+let easterEggCache: { bucket: number; info: EasterEggInfo } = {
+  bucket: -1,
+  info: { visible: false, type: '' },
+};
+
+/** Debug: set to `true` to force the mushroom cloud on the next frame. */
+let debugForceMushroom = false;
+
+/**
+ * Debug helper — call `triggerMushroomCloud()` from the browser console
+ * to instantly show the mushroom cloud explosion in the scenery window.
+ */
+(window as unknown as Record<string, unknown>).triggerMushroomCloud = () => {
+  debugForceMushroom = true;
+};
+
+/** Refresh easter-egg visibility every 8-second bucket (stable per bucket). */
+function refreshEasterEggs(): EasterEggInfo {
+  // Debug force: immediately show mushroom cloud, resets after one render
+  if (debugForceMushroom) {
+    debugForceMushroom = false;
+    // Force a new bucket so the egg is active
+    easterEggCache.bucket = Math.floor(Date.now() / 8000);
+    easterEggCache.info = { visible: true, type: 'mushroom' };
+    return easterEggCache.info;
+  }
+
+  const bucket = Math.floor(Date.now() / 8000);
+  if (bucket !== easterEggCache.bucket) {
+    easterEggCache.bucket = bucket;
+    easterEggCache.info.visible = Math.random() < 0.008; // 0.8 % chance
+    if (easterEggCache.info.visible) {
+      const roll = Math.random();
+      if (roll < 0.35) easterEggCache.info.type = 'mun';
+      else if (roll < 0.60) easterEggCache.info.type = 'ufo';
+      else if (roll < 0.85) easterEggCache.info.type = 'flying-kerbal';
+      else easterEggCache.info.type = 'duna';
+    }
+    // Independent mushroom cloud check (1/67 ≈ 1.49 %) — overrides other eggs
+    if (!easterEggCache.info.visible && Math.random() < 1 / 67) {
+      easterEggCache.info.visible = true;
+      easterEggCache.info.type = 'mushroom';
+    }
+  }
+  return easterEggCache.info;
+}
+
+// ---------------------------------------------------------------------------
+// Sky rendering helpers
+// ---------------------------------------------------------------------------
+
+/** Get the sky gradient colours for a given hour ratio (0..1, 0=midnight). */
+function getSkyColors(t: number): { top: string; bottom: string } {
+  // Night:        0.00 – 0.20
+  // Sunrise:      0.20 – 0.30
+  // Day:          0.30 – 0.70
+  // Sunset:       0.70 – 0.80
+  // Night:        0.80 – 1.00
+
+  if (t < 0.2) {
+    // Deep night
+    return { top: '#050515', bottom: '#0d0d30' };
+  }
+  if (t < 0.3) {
+    // Sunrise
+    const p = (t - 0.2) / 0.1; // 0 → 1
+    return {
+      top: lerpColor('#050515', '#15154a', p),
+      bottom: lerpColor('#0d0d30', '#ff6633', p),
+    };
+  }
+  if (t < 0.7) {
+    // Day
+    return { top: '#1a3a7a', bottom: '#6ab0e6' };
+  }
+  if (t < 0.8) {
+    // Sunset
+    const p = (t - 0.7) / 0.1;
+    return {
+      top: lerpColor('#1a3a7a', '#0a0a28', p),
+      bottom: lerpColor('#6ab0e6', '#ff4422', p),
+    };
+  }
+  // Late sunset → night
+  const p = (t - 0.8) / 0.2;
+  return {
+    top: lerpColor('#0a0a28', '#050515', Math.min(p, 1)),
+    bottom: lerpColor('#ff4422', '#0d0d30', Math.min(p, 1)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Scenery window — main entry
+// ---------------------------------------------------------------------------
+
+/**
+ * Draw the KSC outdoor scenery through the left-wall window.
+ *
+ * Composite order (back → front):
+ *   1. Sky gradient
+ *   2. Stars (night only)
+ *   3. Mid-ground terrain (lighter hills for depth)
+ *   4. Foreground terrain / horizon
+ *   5. Atmospheric haze at horizon
+ *   6. KSC landmark silhouettes (VAB, tracking dish, launch pad) + ground shadows
+ *   7. Randomized easter eggs (Mun, UFO, flying Kerbal, Duna, mushroom cloud)
+ *   8. Glass reflection overlay
+ *   9. Window frame
+ */
+function drawSceneryWindow(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  timeOfDay: number,
+): void {
+  const wx = (WINDOW_POSITION.x / 100) * w;
+  const wy = (WINDOW_POSITION.y / 100) * h;
+  const ww = (WINDOW_DIMENSIONS.width / 100) * w;
+  const wh = (WINDOW_DIMENSIONS.height / 100) * h;
+  const s = Math.min(w, h) / 720;
+
+  // ---- Draw inside clip region ----
+  ctx.save();
+
+  ctx.beginPath();
+  roundRect(ctx, wx, wy, ww, wh, 3 * s);
+  ctx.clip();
+
+  // 1. Sky backdrop
+  const sky = getSkyColors(timeOfDay);
+  const skyGrad = ctx.createLinearGradient(wx, wy, wx, wy + wh);
+  skyGrad.addColorStop(0, sky.top);
+  skyGrad.addColorStop(1, sky.bottom);
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(wx, wy, ww, wh);
+
+  // 2. Stars (night / twilight only)
+  if (timeOfDay < 0.22 || timeOfDay > 0.78) {
+    drawWindowStars(ctx, wx, wy, ww, wh);
+  }
+
+  // 2.5 Mid-ground terrain (lighter hills between sky and foreground)
+  drawMidgroundTerrain(ctx, wx, wy, ww, wh, timeOfDay);
+
+  // 3. Foreground terrain horizon
+  drawWindowTerrain(ctx, wx, wy, ww, wh, timeOfDay);
+
+  // 3.5 Atmospheric haze at horizon
+  drawAtmosphericHaze(ctx, wx, wy, ww, wh, timeOfDay);
+
+  // 4. KSC landmark silhouettes
+  drawKSCSilhouettes(ctx, wx, wy, ww, wh, timeOfDay);
+
+  // 5. Easter eggs
+  drawEasterEggs(ctx, wx, wy, ww, wh, timeOfDay, s);
+
+  // 6. Glass reflection overlay
+  drawWindowGlass(ctx, wx, wy, ww, wh, s);
+
+  ctx.restore();
+
+  // ---- Window frame (drawn outside clip) ----
+  ctx.strokeStyle = '#4a4c54';
+  ctx.lineWidth = 3 * s;
+  ctx.strokeRect(wx, wy, ww, wh);
+
+  // Frame inner shadow / highlight
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  ctx.lineWidth = 1.5 * s;
+  ctx.strokeRect(wx + 2 * s, wy + 2 * s, ww - 4 * s, wh - 4 * s);
+
+  // Frame outer highlight
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1 * s;
+  ctx.strokeRect(wx - 1, wy - 1, ww + 2, wh + 2);
+}
+
+// ---------------------------------------------------------------------------
+// Sub-layer functions
+// ---------------------------------------------------------------------------
+
+/** Twinkling stars — only visible at night. Deterministic positions. */
+function drawWindowStars(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+): void {
+  const starCount = 35;
+  for (let i = 0; i < starCount; i++) {
+    // Deterministic position from index (stable across frames)
+    const px = (Math.sin(i * 317 + 12) * 0.5 + 0.5);
+    const py = (Math.sin(i * 719 + 34) * 0.5 + 0.5);
+    const sx = wx + px * ww;
+    const sy = wy + py * wh * 0.55; // upper 55 % of window
+    const size = 0.4 + (Math.sin(i * 553 + 56) * 0.5 + 0.5) * 1.2;
+
+    // Twinkle
+    const twinkle = 0.5 + 0.5 * Math.sin(Date.now() / 1800 + i * 1.7);
+    ctx.globalAlpha = 0.3 + 0.7 * Math.max(twinkle, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(sx, sy, size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brighter core for brightest stars
+    if (twinkle > 0.6) {
+      ctx.globalAlpha = 0.4 * twinkle;
+      ctx.fillStyle = '#ccddff';
+      ctx.beginPath();
+      ctx.arc(sx, sy, size * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Mid-ground terrain — lighter, lower-amplitude hills for depth between sky and foreground. */
+function drawMidgroundTerrain(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  timeOfDay: number,
+): void {
+  const horizonY = wy + wh * 0.58;
+  const isNight = timeOfDay < 0.22 || timeOfDay > 0.78;
+  const fillColor = isNight ? '#22222a' : '#6a8a50';
+
+  ctx.fillStyle = fillColor;
+  ctx.beginPath();
+  ctx.moveTo(wx, horizonY);
+
+  // Lower frequency, lower amplitude — creates distance impression
+  for (let x = 0; x <= ww; x += 2) {
+    const hill =
+      Math.sin((x / ww) * Math.PI * 2.5) * wh * 0.020 +
+      Math.sin((x / ww) * Math.PI * 5.5) * wh * 0.012;
+    ctx.lineTo(wx + x, horizonY + hill);
+  }
+
+  ctx.lineTo(wx + ww, wy + wh);
+  ctx.lineTo(wx, wy + wh);
+  ctx.closePath();
+
+  // Opacity blend — more transparent near horizon for distance fade
+  const hazeAlpha = isNight ? 0.45 : 0.50;
+  ctx.globalAlpha = hazeAlpha;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/** Atmospheric haze gradient near the horizon — softens the sky/ground meeting line. */
+function drawAtmosphericHaze(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  timeOfDay: number,
+): void {
+  const horizonY = wy + wh * 0.58;
+  const isNight = timeOfDay < 0.22 || timeOfDay > 0.78;
+
+  const hazeHeight = wh * 0.12;
+  const grad = ctx.createLinearGradient(
+    wx, horizonY - hazeHeight * 0.3,
+    wx, horizonY + hazeHeight * 0.7,
+  );
+
+  if (isNight) {
+    grad.addColorStop(0, 'rgba(40,40,60,0)');
+    grad.addColorStop(0.4, 'rgba(40,40,60,0.12)');
+    grad.addColorStop(0.6, 'rgba(40,40,60,0.12)');
+    grad.addColorStop(1, 'rgba(30,30,50,0)');
+  } else {
+    grad.addColorStop(0, 'rgba(180,200,220,0)');
+    grad.addColorStop(0.4, 'rgba(170,200,210,0.10)');
+    grad.addColorStop(0.6, 'rgba(150,190,200,0.08)');
+    grad.addColorStop(1, 'rgba(100,140,160,0)');
+  }
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(wx, horizonY - hazeHeight * 0.3, ww, hazeHeight);
+}
+
+/** Rolling terrain / horizon at ~58 % of window height. */
+function drawWindowTerrain(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  timeOfDay: number,
+): void {
+  const horizonY = wy + wh * 0.58;
+  const isNight = timeOfDay < 0.22 || timeOfDay > 0.78;
+  const fillColor = isNight ? '#1a1a14' : '#2d3a1a';
+  const edgeColor = isNight ? '#2a2a20' : '#4a6a2a';
+
+  // Ground fill
+  ctx.fillStyle = fillColor;
+  ctx.beginPath();
+  ctx.moveTo(wx, horizonY);
+
+  for (let x = 0; x <= ww; x += 1) {
+    const hill =
+      Math.sin((x / ww) * Math.PI * 3) * wh * 0.04 +
+      Math.sin((x / ww) * Math.PI * 7) * wh * 0.02;
+    ctx.lineTo(wx + x, horizonY + hill);
+  }
+
+  ctx.lineTo(wx + ww, wy + wh);
+  ctx.lineTo(wx, wy + wh);
+  ctx.closePath();
+  ctx.fill();
+
+  // Horizon edge highlight
+  ctx.strokeStyle = edgeColor;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(wx, horizonY);
+  for (let x = 0; x <= ww; x += 2) {
+    const hill =
+      Math.sin((x / ww) * Math.PI * 3) * wh * 0.04 +
+      Math.sin((x / ww) * Math.PI * 7) * wh * 0.02;
+    ctx.lineTo(wx + x, horizonY + hill);
+  }
+  ctx.stroke();
+}
+
+/** Kerbal Space Center landmark silhouettes (VAB, tracking dish, launch pad). */
+function drawKSCSilhouettes(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  timeOfDay: number,
+): void {
+  const horizonY = wy + wh * 0.58;
+  const isNight = timeOfDay < 0.22 || timeOfDay > 0.78;
+  const color = isNight ? '#1a1a18' : '#2a3a1a';
+
+  ctx.fillStyle = color;
+
+  // ---- VAB (Vehicle Assembly Building) — tall, iconic flat-top ----
+  const vabX = wx + ww * 0.55;
+  const vabW = ww * 0.22;
+  const vabH = wh * 0.30;
+
+  // Main body
+  ctx.fillRect(vabX, horizonY - vabH, vabW, vabH);
+
+  // Curved top — the VAB's iconic arched roof
+  ctx.beginPath();
+  ctx.moveTo(vabX, horizonY - vabH);
+  ctx.quadraticCurveTo(
+    vabX + vabW / 2,
+    horizonY - vabH - wh * 0.03,
+    vabX + vabW,
+    horizonY - vabH,
+  );
+  ctx.fill();
+
+  // Vertical stripe detail
+  ctx.fillStyle = isNight ? '#22221a' : '#3a4a2a';
+  ctx.fillRect(vabX + vabW * 0.42, horizonY - vabH, vabW * 0.16, vabH);
+
+  // ---- Tracking dish (left side) ----
+  const dishX = wx + ww * 0.18;
+  const dishStemH = wh * 0.15;
+
+  // Stem
+  ctx.fillStyle = color;
+  ctx.fillRect(dishX - 1, horizonY - dishStemH, 2, dishStemH);
+
+  // Dish — large circle
+  ctx.beginPath();
+  ctx.arc(dishX, horizonY - dishStemH, ww * 0.055, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner dish detail
+  ctx.fillStyle = isNight ? '#22221a' : '#3a4a2a';
+  ctx.beginPath();
+  ctx.arc(dishX, horizonY - dishStemH, ww * 0.028, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ---- Launch pad / gantry (centre-left) ----
+  const padX = wx + ww * 0.32;
+  const padW = ww * 0.08;
+  const padH = wh * 0.10;
+
+  // Gantry structure
+  ctx.fillStyle = color;
+  ctx.fillRect(padX, horizonY - padH, padW, padH);
+
+  // Small rocket on the pad
+  const rocketW = padW * 0.4;
+  const rocketH = wh * 0.08;
+  ctx.fillRect(
+    padX + padW * 0.3,
+    horizonY - padH - rocketH,
+    rocketW,
+    rocketH,
+  );
+
+  // Rocket nose cone
+  ctx.beginPath();
+  ctx.moveTo(padX + padW * 0.3, horizonY - padH - rocketH);
+  ctx.lineTo(padX + padW * 0.5, horizonY - padH - rocketH - wh * 0.06);
+  ctx.lineTo(padX + padW * 0.7, horizonY - padH - rocketH);
+  ctx.closePath();
+  ctx.fill();
+
+  // Rocket window detail
+  ctx.fillStyle = isNight ? '#1a1a14' : '#4a6a2a';
+  ctx.beginPath();
+  ctx.arc(
+    padX + padW * 0.5,
+    horizonY - padH - rocketH * 0.6,
+    rocketW * 0.12,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
+
+  // -----------------------------------------------------------------------
+  // Ground shadows — dark gradient anchored at horizon below each building
+  // -----------------------------------------------------------------------
+  const shadowHeight = wh * 0.035;
+  const shadowMaxAlpha = isNight ? 0.35 : 0.30;
+
+  // Helper: draw a single ground shadow
+  function drawGroundShadow(shadowX: number, shadowW: number): void {
+    const grad = ctx.createLinearGradient(0, horizonY, 0, horizonY + shadowHeight);
+    grad.addColorStop(0, `rgba(0,0,0,${shadowMaxAlpha})`);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(shadowX, horizonY, shadowW, shadowHeight);
+  }
+
+  // VAB shadow
+  drawGroundShadow(vabX - vabW * 0.03, vabW * 1.06);
+  // Tracking dish shadow
+  drawGroundShadow(dishX - ww * 0.04, ww * 0.08);
+  // Launch pad shadow
+  drawGroundShadow(padX - padW * 0.05, padW * 1.1);
+}
+
+/** Rare easter eggs: Mun, UFO, flying Kerbal, Duna. */
+function drawEasterEggs(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  timeOfDay: number,
+  s: number,
+): void {
+  const egg = refreshEasterEggs();
+  if (!egg.visible) return;
+
+  const horizonY = wy + wh * 0.58;
+
+  switch (egg.type) {
+    // ---- The Mun (large cratered moon) ----
+    case 'mun': {
+      // Only visible outside day hours
+      if (timeOfDay > 0.2 && timeOfDay < 0.7) return;
+      const mx = wx + ww * 0.35;
+      const my = wy + wh * 0.15;
+      const mr = ww * 0.06;
+
+      // Main body
+      ctx.fillStyle = '#c8c0b0';
+      ctx.beginPath();
+      ctx.arc(mx, my, mr, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Craters
+      ctx.fillStyle = '#a8a090';
+      ctx.beginPath();
+      ctx.arc(mx - mr * 0.2, my - mr * 0.1, mr * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(mx + mr * 0.25, my + mr * 0.2, mr * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(mx - mr * 0.1, my + mr * 0.3, mr * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle glow
+      ctx.fillStyle = 'rgba(255, 255, 200, 0.05)';
+      ctx.beginPath();
+      ctx.arc(mx, my, mr * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+
+    // ---- UFO ----
+    case 'ufo': {
+      const ux = wx + ww * 0.6;
+      const uy = wy + wh * (0.2 + 0.3 * Math.sin(Date.now() / 5000));
+
+      // Saucer body
+      ctx.fillStyle = '#556';
+      ctx.beginPath();
+      ctx.ellipse(ux, uy, ww * 0.05, wh * 0.02, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Dome
+      ctx.fillStyle = '#779';
+      ctx.beginPath();
+      ctx.arc(ux, uy - wh * 0.01, ww * 0.02, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Blinking lights
+      const blink = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+      ctx.fillStyle = `rgba(100, 255, 100, ${blink})`;
+      ctx.beginPath();
+      ctx.arc(ux - ww * 0.025, uy + wh * 0.005, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(ux + ww * 0.025, uy + wh * 0.005, 1, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+
+    // ---- Flying Kerbal with jetpack ----
+    case 'flying-kerbal': {
+      const kx = wx + ww * 0.45;
+      const ky = wy + wh * (0.3 + 0.2 * Math.sin(Date.now() / 4000));
+      const ks = s * 5; // kerbal size
+
+      // Green body
+      ctx.fillStyle = '#7ec850';
+      ctx.beginPath();
+      ctx.arc(kx, ky, ks * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Helmet (red — Jeb style)
+      ctx.fillStyle = '#ee3333';
+      ctx.beginPath();
+      ctx.arc(kx, ky - ks * 0.3, ks * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Helmet visor
+      ctx.fillStyle = '#ccffff';
+      ctx.beginPath();
+      ctx.arc(kx, ky - ks * 0.3, ks * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Jetpack flame (flickering)
+      const flame = 0.6 + 0.4 * Math.sin(Date.now() / 100);
+      ctx.fillStyle = `rgba(255, 150, 50, ${flame})`;
+      ctx.beginPath();
+      ctx.moveTo(kx - ks * 0.15, ky + ks * 0.5);
+      ctx.lineTo(kx + ks * 0.15, ky + ks * 0.5);
+      ctx.lineTo(kx, ky + ks * 1.0);
+      ctx.closePath();
+      ctx.fill();
+
+      // Inner flame
+      ctx.fillStyle = `rgba(255, 255, 100, ${flame * 0.6})`;
+      ctx.beginPath();
+      ctx.moveTo(kx - ks * 0.06, ky + ks * 0.55);
+      ctx.lineTo(kx + ks * 0.06, ky + ks * 0.55);
+      ctx.lineTo(kx, ky + ks * 0.8);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+
+    // ---- Duna (tiny red dot) ----
+    case 'duna': {
+      // Only visible during twilight / night
+      if (timeOfDay > 0.22 && timeOfDay < 0.68) return;
+      const dx = wx + ww * 0.75;
+      const dy = wy + wh * 0.12;
+      ctx.fillStyle = '#cc5533';
+      ctx.beginPath();
+      ctx.arc(dx, dy, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+
+    // ---- MUSHROOM CLOUD (FULL-SCREEN) ----
+    case 'mushroom': {
+      const bucketElapsed = Date.now() % 8000;
+      const progress = Math.min(bucketElapsed / 8000, 1);
+      const isNight = timeOfDay < 0.22 || timeOfDay > 0.78;
+
+      // Center-ish so the blast fills the whole window
+      const mx = wx + ww * 0.50;
+      const my = horizonY;
+
+      // ---- FLASH (0-10%) — brilliant white fills the entire window ----
+      if (progress < 0.10) {
+        const t = progress / 0.10;
+        const flashR = ww * (0.80 + t * 1.70);   // 80% → 250% of window width
+        const alpha = 0.7 + t * 0.3;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // Bright inner flash
+        const grad = ctx.createRadialGradient(mx, my, 0, mx, my, flashR);
+        grad.addColorStop(0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.35, 'rgba(255,255,200,0.95)');
+        grad.addColorStop(0.6, 'rgba(255,200,100,0.5)');
+        grad.addColorStop(1, 'rgba(255,150,50,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(mx, my, flashR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Massive outer halo — exceeds window bounds
+        const haloGrad = ctx.createRadialGradient(mx, my, 0, mx, my, flashR * 3.5);
+        haloGrad.addColorStop(0, 'rgba(255,255,255,0.25)');
+        haloGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = haloGrad;
+        ctx.beginPath();
+        ctx.arc(mx, my, flashR * 3.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+        break;
+      }
+
+      // ---- FIREBALL (10-35%) — immense fireball fills most of the window ----
+      if (progress < 0.35) {
+        const t = (progress - 0.10) / 0.25;
+        const fbR = ww * (0.40 + t * 2.10);       // 40% → 250% of window width
+        const fbY = my - fbR * 0.35 * t;
+        const alpha = 0.85 + t * 0.15;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // Main fireball
+        const grad = ctx.createRadialGradient(mx, fbY, 0, mx, fbY, fbR);
+        grad.addColorStop(0, 'rgba(255,255,200,1)');
+        grad.addColorStop(0.15, 'rgba(255,200,100,0.95)');
+        grad.addColorStop(0.4, 'rgba(255,120,50,0.85)');
+        grad.addColorStop(0.7, 'rgba(200,60,20,0.6)');
+        grad.addColorStop(1, 'rgba(80,20,10,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(mx, fbY, fbR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // White-hot core
+        const coreGrad = ctx.createRadialGradient(mx, fbY, 0, mx, fbY, fbR * 0.35);
+        coreGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
+        coreGrad.addColorStop(1, 'rgba(255,255,200,0)');
+        ctx.fillStyle = coreGrad;
+        ctx.beginPath();
+        ctx.arc(mx, fbY, fbR * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ground reflection — wide arc
+        const groundGrad = ctx.createRadialGradient(mx, my, 0, mx, my, fbR * 2.0);
+        groundGrad.addColorStop(0, 'rgba(255,150,50,0.12)');
+        groundGrad.addColorStop(1, 'rgba(255,150,50,0)');
+        ctx.fillStyle = groundGrad;
+        ctx.beginPath();
+        ctx.ellipse(mx, my, fbR * 2.0, fbR * 0.50, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+        break;
+      }
+
+      // ---- MUSHROOM CLOUD FORMATION (35-65%) — fills from horizon to above the window top ----
+      if (progress < 0.65) {
+        const t = (progress - 0.35) / 0.30;
+        const cloudW = ww * (1.00 + t * 3.00);     // 100% → 400% — wider than window
+        const cloudH = wh * (0.80 + t * 3.20);     // 80% → 400% — taller than window
+        const capY = my - cloudH * 0.85;            // rises above window top edge
+        const alpha = 0.80 + t * 0.20;
+
+        const stemColor = isNight ? '#3a3a32' : '#6a6a60';
+        const capColor = isNight ? '#4a4a40' : '#8a8a78';
+        const puffColor = isNight ? '#505048' : '#9a9a88';
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // Massive stem — thick trapezoid from horizon
+        ctx.fillStyle = stemColor;
+        const stemTopW = cloudW * 0.70;
+        const stemBotW = cloudW * 0.45;
+        ctx.beginPath();
+        ctx.moveTo(mx - stemBotW / 2, my);
+        ctx.lineTo(mx - stemTopW / 2, capY + cloudH * 0.15);
+        ctx.lineTo(mx + stemTopW / 2, capY + cloudH * 0.15);
+        ctx.lineTo(mx + stemBotW / 2, my);
+        ctx.closePath();
+        ctx.fill();
+
+        // Mushroom cap — huge ellipse
+        ctx.fillStyle = capColor;
+        ctx.beginPath();
+        ctx.ellipse(mx, capY, cloudW * 0.55, cloudH * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Billowing puffs — many, covering the whole cap
+        const puffs = [
+          [-0.55, -0.05], [0.55, -0.05],
+          [-0.35, -0.30], [0.35, -0.30],
+          [0, -0.25],
+          [-0.75, 0.10], [0.75, 0.10],
+          [-0.25, 0.18], [0.25, 0.18],
+          [-0.90, -0.15], [0.90, -0.15],
+          [-0.15, -0.35], [0.15, -0.35],
+          [-0.65, 0.20], [0.65, 0.20],
+        ];
+        ctx.fillStyle = puffColor;
+        for (const [px, py] of puffs) {
+          ctx.beginPath();
+          ctx.arc(
+            mx + px * cloudW * 0.55,
+            capY + py * cloudH * 0.55,
+            cloudW * 0.22,
+            0, Math.PI * 2,
+          );
+          ctx.fill();
+        }
+
+        ctx.restore();
+        break;
+      }
+
+      // ---- SMOKE & FADE (65-100%) — billowing smoke spills beyond every edge ----
+      {
+        const t = (progress - 0.65) / 0.35;
+        const cloudW = ww * (1.20 + t * 4.80);     // 120% → 600% — spills far past both sides
+        const cloudH = wh * (1.00 + t * 4.00);     // 100% → 500% — spills far past top
+        const capY = my - cloudH * 0.70;
+        const alpha = 0.90 * (1 - t);
+
+        if (alpha > 0.01) {
+          ctx.save();
+          ctx.globalAlpha = alpha;
+
+          const smokeColor = isNight ? '#3a3a38' : '#707068';
+          ctx.fillStyle = smokeColor;
+
+          // Central mass — fills width
+          ctx.beginPath();
+          ctx.ellipse(mx, capY, cloudW * 0.45, cloudH * 0.22, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Expanding smoke puffs — many, drifting far beyond window edges
+          const puffCount = 12 + Math.floor(t * 12);
+          for (let i = 0; i < puffCount; i++) {
+            const angle = (i / puffCount) * Math.PI * 2 + t * 0.6;
+            const drift = cloudW * (0.30 + t * 0.40);
+            const px = mx + Math.cos(angle) * drift;
+            const py = capY + Math.sin(angle * 0.5) * cloudH * 0.15;
+            const pr = cloudW * (0.15 + t * 0.15);
+            ctx.beginPath();
+            ctx.arc(px, py, pr, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+        break;
+      }
+    }
+  }
+}
+
+/** Subtle glass reflection streaks and tint overlay. */
+function drawWindowGlass(
+  ctx: CanvasRenderingContext2D,
+  wx: number,
+  wy: number,
+  ww: number,
+  wh: number,
+  s: number,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, wx, wy, ww, wh, 3 * s);
+  ctx.clip();
+
+  // Two diagonal reflection streaks
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+  ctx.lineWidth = ww * 0.15;
+  for (let i = 0; i < 2; i++) {
+    const yOff = wy + wh * (0.25 + i * 0.35);
+    ctx.beginPath();
+    ctx.moveTo(wx - ww * 0.1, yOff - ww * 0.15);
+    ctx.lineTo(wx + ww * 1.1, yOff + ww * 0.15);
+    ctx.stroke();
+  }
+
+  // Very subtle blue glass tint
+  ctx.fillStyle = 'rgba(180, 210, 240, 0.03)';
+  ctx.fillRect(wx, wy, ww, wh);
+
+  ctx.restore();
 }
 
 /** The large central Mission Control display. */
@@ -121,7 +1028,7 @@ function drawBigScreen(ctx: CanvasRenderingContext2D, w: number, h: number, _flo
   const sw = w * 0.38;
   const sh = Math.min(h * 0.18, h * FLOOR_Y_RATIO * 0.5);
 
-  // Bezel
+  // ---- Bezel ----
   ctx.fillStyle = '#1a1a24';
   ctx.strokeStyle = '#333344';
   ctx.lineWidth = 3;
@@ -129,76 +1036,210 @@ function drawBigScreen(ctx: CanvasRenderingContext2D, w: number, h: number, _flo
   ctx.fill();
   ctx.stroke();
 
-  // Screen glow
+  // ---- Screen surface ----
   const glowGrad = ctx.createLinearGradient(sx, sy, sx, sy + sh);
-  glowGrad.addColorStop(0, '#0a3a2a');
-  glowGrad.addColorStop(0.5, '#0d4d35');
-  glowGrad.addColorStop(1, '#0a3a2a');
+  glowGrad.addColorStop(0, '#0a2a1a');
+  glowGrad.addColorStop(0.5, '#0d3d25');
+  glowGrad.addColorStop(1, '#0a2a1a');
   ctx.fillStyle = glowGrad;
   roundRect(ctx, sx, sy, sw, sh, 2);
   ctx.fill();
 
-  // Flicker effect — subtle static lines
-  ctx.strokeStyle = 'rgba(50, 255, 180, 0.15)';
-  ctx.lineWidth = 0.6;
-  for (let i = 0; i < 6; i++) {
-    const ly = sy + (sh / 7) * (i + 0.5) + Math.sin(Date.now() / 2000 + i) * 2;
+  // ---- Scan line overlay ----
+  ctx.strokeStyle = 'rgba(50, 255, 180, 0.06)';
+  ctx.lineWidth = 0.5;
+  const now = Date.now();
+  for (let i = 0; i < 12; i++) {
+    const ly = sy + (sh / 13) * (i + 0.5) + Math.sin(now / 2000 + i) * 1.5;
     ctx.beginPath();
-    ctx.moveTo(sx + 6, ly);
-    ctx.lineTo(sx + sw - 6, ly);
+    ctx.moveTo(sx + 4, ly);
+    ctx.lineTo(sx + sw - 4, ly);
     ctx.stroke();
   }
 
-  // Title text
-  ctx.fillStyle = 'rgba(80, 255, 200, 0.9)';
-  ctx.font = `bold ${Math.round(h * 0.022)}px "Courier New", monospace`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(t('room.title'), sx + sw / 2, sy + sh * 0.4);
+  // ---- Live data ----
+  const timeState = timeSystem.getTime();
+  const presentKerbals = kerbalStore.getPresent();
+  const crewCount = presentKerbals.length;
+  const totalCount = 9;
+  const shiftLabel = timeState.shiftType === 'day' ? t('room.dayShift') : t('room.nightShift');
+  const hourStr = String(timeState.currentHour).padStart(2, '0');
+  const minStr = String(timeState.currentMinute).padStart(2, '0');
 
-  // Subtitle
-  ctx.fillStyle = 'rgba(80, 255, 200, 0.4)';
-  ctx.font = `${Math.round(h * 0.013)}px "Courier New", monospace`;
-  ctx.fillText(t('room.statusOk'), sx + sw / 2, sy + sh * 0.68);
+  const paddingX = sx + 8;
+  const headerSize = Math.round(h * 0.014);
+  const fs = Math.round(h * 0.010); // base font size
+
+  ctx.textBaseline = 'top';
+
+  // ---- 1. Title bar with clock ----
+  ctx.fillStyle = 'rgba(80, 255, 200, 0.9)';
+  ctx.font = `bold ${headerSize}px "Courier New", monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillText(t('room.title'), paddingX, sy + 4);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${hourStr}:${minStr}`, sx + sw - 8, sy + 4);
+
+  // ---- 2. Divider ----
+  const dividerY = sy + 4 + headerSize * 1.7;
+  ctx.strokeStyle = 'rgba(80, 255, 180, 0.3)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(paddingX, dividerY);
+  ctx.lineTo(sx + sw - 8, dividerY);
+  ctx.stroke();
+
+  // ---- 3. Shift + crew summary ----
+  ctx.textAlign = 'left';
+  ctx.font = `${fs}px "Courier New", monospace`;
+  let lineY = dividerY + 3;
+  ctx.fillStyle = 'rgba(80, 255, 200, 0.7)';
+  ctx.fillText(`SHIFT: ${shiftLabel}`, paddingX, lineY);
+  lineY += fs * 1.5;
+  ctx.fillText(`CREW:  ${crewCount}/${totalCount} on duty`, paddingX, lineY);
+  lineY += fs * 1.5;
+
+  // ---- 4. Per-kerbal status rows ----
+  const rowH = fs * 1.35;
+  const maxRows = Math.max(1, Math.floor((sh - (lineY - sy) - 20) / rowH));
+  const visibleKerbals = presentKerbals.slice(0, maxRows);
+
+  for (const k of visibleKerbals) {
+    // Mood-based dot/star
+    let moodDot: string;
+    let moodColor: string;
+    switch (k.mood) {
+      case 'excited':
+      case 'ecstatic':
+        moodDot = '★';
+        moodColor = '#66ff66';
+        break;
+      case 'tired':
+      case 'groggy':
+        moodDot = '○';
+        moodColor = '#ffaa33';
+        break;
+      case 'annoyed':
+        moodDot = '◆';
+        moodColor = '#ff6644';
+        break;
+      case 'anxious':
+        moodDot = '◆';
+        moodColor = '#ff8844';
+        break;
+      default:
+        moodDot = '●';
+        moodColor = '#80ffcc';
+    }
+
+    // Position label
+    const posColor = k.position === 'desk' ? '#80ffcc' : k.position === 'coffee' ? '#ffcc44' : k.position === 'break' || k.position === 'bathroom' || k.position === 'lunch' ? '#ff8844' : '#66aaff';
+    const posLabel = k.position.toUpperCase();
+
+    ctx.fillStyle = moodColor;
+    ctx.font = `${fs}px "Courier New", monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(moodDot, paddingX, lineY);
+
+    ctx.fillStyle = '#ccffcc';
+    const nameX = paddingX + fs * 1.4;
+    ctx.fillText(k.name.padEnd(12), nameX, lineY);
+
+    ctx.fillStyle = posColor;
+    ctx.fillText(posLabel, nameX + fs * 9, lineY);
+    lineY += rowH;
+  }
+
+  // ---- 5. Bottom status bar ----
+  const statusY = sy + sh - fs * 1.8;
+  ctx.strokeStyle = 'rgba(80, 255, 180, 0.3)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(paddingX, statusY - 2);
+  ctx.lineTo(sx + sw - 8, statusY - 2);
+  ctx.stroke();
+
+  const hasIssues = presentKerbals.some((k) => k.mood === 'annoyed' || k.mood === 'anxious');
+  const hasTired = presentKerbals.some((k) => k.mood === 'tired' || k.mood === 'groggy');
+  ctx.font = `${fs}px "Courier New", monospace`;
+  ctx.textAlign = 'left';
+  if (hasIssues) {
+    ctx.fillStyle = '#ff6644';
+    ctx.fillText('⚠ CREW STRESS DETECTED', paddingX, statusY);
+  } else if (hasTired) {
+    ctx.fillStyle = '#ffaa33';
+    ctx.fillText('⚠ FATIGUE MONITORING ACTIVE', paddingX, statusY);
+  } else {
+    ctx.fillStyle = 'rgba(80, 255, 200, 0.6)';
+    ctx.fillText(t('room.statusOk'), paddingX, statusY);
+  }
+
+  // Blinking cursor indicator
+  if (Math.sin(now / 500) > 0) {
+    ctx.fillStyle = 'rgba(80, 255, 180, 0.7)';
+    ctx.textAlign = 'right';
+    ctx.font = `${fs}px "Courier New", monospace`;
+    ctx.fillText('_', sx + sw - 8, statusY);
+  }
 }
 
 /** Draw a few Kerbal-themed posters / drawings on the walls. */
-function drawPosters(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-  const posterPositions = [
-    { x: w * 0.62, y: h * 0.06, w: w * 0.06, h: h * 0.09 },
-    { x: w * 0.70, y: h * 0.06, w: w * 0.06, h: h * 0.09 },
-  ];
+/** Draw an LED panel across the entire ceiling that lights up the whole room.
+ *  Brightness is inverse to timeOfDay — full power at night, dim during the day. */
+function drawCeilingLight(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  timeOfDay: number,
+): void {
+  // Brightness: night=1.0, day=0.15
+  const brightness = 1.0 - timeOfDay * 0.85;
+  if (brightness < 0.01) return;
 
-  for (const p of posterPositions) {
-    // Frame
-    ctx.fillStyle = '#222';
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 1;
-    roundRect(ctx, p.x - 1, p.y - 1, p.w + 2, p.h + 2, 2);
-    ctx.fill();
-    ctx.stroke();
+  const floorLine = h * FLOOR_Y_RATIO;
 
-    // Simple rocket sketch inside
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    roundRect(ctx, p.x + 1, p.y + 1, p.w - 2, p.h - 2, 1);
-    ctx.fill();
+  // ---- Full-room light wash — a warm glow that overlays walls + floor ----
+  // Brighter near the ceiling, fading toward the floor (like real ceiling LEDs)
+  const roomGrad = ctx.createLinearGradient(0, 0, 0, floorLine);
+  roomGrad.addColorStop(0, `rgba(255, 235, 200, ${0.040 * brightness})`);
+  roomGrad.addColorStop(0.3, `rgba(255, 235, 200, ${0.028 * brightness})`);
+  roomGrad.addColorStop(0.6, `rgba(255, 235, 200, ${0.016 * brightness})`);
+  roomGrad.addColorStop(1, `rgba(255, 235, 200, ${0.005 * brightness})`);
+  ctx.fillStyle = roomGrad;
+  ctx.fillRect(0, 0, w, floorLine);
 
-    // Crude Kerbal face doodle
-    ctx.fillStyle = 'rgba(126, 200, 80, 0.5)';
-    ctx.beginPath();
-    ctx.arc(p.x + p.w / 2, p.y + p.h * 0.45, p.h * 0.25, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.beginPath();
-    ctx.arc(p.x + p.w * 0.4, p.y + p.h * 0.4, p.h * 0.05, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(p.x + p.w * 0.6, p.y + p.h * 0.4, p.h * 0.05, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // Floor also gets a subtle warm wash
+  const floorGrad = ctx.createLinearGradient(0, floorLine, 0, h);
+  floorGrad.addColorStop(0, `rgba(255, 235, 200, ${0.008 * brightness})`);
+  floorGrad.addColorStop(1, `rgba(255, 235, 200, 0)`);
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(0, floorLine, w, h - floorLine);
+
+  // ---- LED panel fixture — a thin glowing strip along the ceiling ----
+  const panelH = Math.max(2, h * 0.006);
+  const panelGrad = ctx.createLinearGradient(0, 0, 0, panelH);
+  panelGrad.addColorStop(0, `rgba(255, 245, 225, ${0.5 * brightness})`);
+  panelGrad.addColorStop(0.4, `rgba(255, 245, 225, ${0.9 * brightness})`);
+  panelGrad.addColorStop(0.8, `rgba(255, 245, 225, ${brightness})`);
+  panelGrad.addColorStop(1, `rgba(255, 245, 225, ${0.3 * brightness})`);
+  ctx.fillStyle = panelGrad;
+  ctx.fillRect(0, 0, w, panelH);
+
+  // LED panel frame (thin metal border)
+  ctx.strokeStyle = `rgba(180, 180, 190, ${0.15 * brightness + 0.05})`;
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(0, 0, w, panelH);
+
+  // ---- Ceiling glow — soft halo spreading across the top of the room ----
+  const ceilingGlowGrad = ctx.createRadialGradient(w * 0.5, 0, 0, w * 0.5, 0, w * 0.35);
+  ceilingGlowGrad.addColorStop(0, `rgba(255, 240, 210, ${0.030 * brightness})`);
+  ceilingGlowGrad.addColorStop(0.5, `rgba(255, 240, 210, ${0.012 * brightness})`);
+  ceilingGlowGrad.addColorStop(1, `rgba(255, 240, 210, 0)`);
+  ctx.fillStyle = ceilingGlowGrad;
+  ctx.fillRect(0, 0, w, floorLine);
 }
 
-/** Shift badge in the top-right corner showing current shift + crew count. */
+/** Shift badge in the top-right corner showing current shift + crew count + KSC branding. */
 function drawShiftBadge(ctx: CanvasRenderingContext2D, w: number, h: number, _timeOfDay: number): void {
   const timeState = timeSystem.getTime();
   const isDay = timeState.shiftType === 'day';
@@ -210,15 +1251,25 @@ function drawShiftBadge(ctx: CanvasRenderingContext2D, w: number, h: number, _ti
   const bw = w * 0.18;
   const bh = h * 0.055;
 
-  // Badge background
-  const bgColor = isDay ? 'rgba(234, 179, 8, 0.25)' : 'rgba(99, 102, 241, 0.25)';
-  const borderColor = isDay ? 'rgba(234, 179, 8, 0.5)' : 'rgba(99, 102, 241, 0.5)';
+  // KSC orange accent dot on left edge
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.7)';
+  ctx.beginPath();
+  ctx.arc(bx - 2, by + bh / 2, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Badge background with KSC dark panel
+  const bgColor = isDay ? 'rgba(234, 179, 8, 0.20)' : 'rgba(99, 102, 241, 0.20)';
+  const borderColor = isDay ? 'rgba(234, 179, 8, 0.45)' : 'rgba(99, 102, 241, 0.45)';
   ctx.fillStyle = bgColor;
   ctx.strokeStyle = borderColor;
   ctx.lineWidth = 1;
   roundRect(ctx, bx, by, bw, bh, 4);
   ctx.fill();
   ctx.stroke();
+
+  // Top thin KSC orange stripe on badge
+  ctx.fillStyle = 'rgba(255, 140, 60, 0.3)';
+  ctx.fillRect(bx + 4, by + 1, bw - 8, 2);
 
   // Label
   const shiftLabel = isDay ? t('room.dayShift') : t('room.nightShift');
@@ -227,7 +1278,7 @@ function drawShiftBadge(ctx: CanvasRenderingContext2D, w: number, h: number, _ti
   ctx.font = `bold ${Math.round(h * 0.016)}px "Courier New", monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`${shiftLabel}  ·  ${t('room.crew', { count })}`, bx + bw / 2, by + bh / 2);
+  ctx.fillText(`✦ ${shiftLabel}  ·  ${t('room.crew', { count })}`, bx + bw / 2, by + bh / 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +1314,7 @@ function drawDesk(ctx: CanvasRenderingContext2D, opts: DrawDeskOptions): void {
 
   // Monitor if present
   if (hasMonitor) {
-    drawMonitor(ctx, x + w * 0.08, y - height * 0.45, w * 0.84, height * 0.5, assignedName, timeOfDay);
+    drawMonitor(ctx, x + w * 0.08, y - height * 0.1, w * 0.84, height * 0.22, assignedName, timeOfDay);
   }
 
   // Nameplate
@@ -291,7 +1342,7 @@ function drawDesk(ctx: CanvasRenderingContext2D, opts: DrawDeskOptions): void {
   }
 }
 
-/** Draw a monitor on a desk with flickering data. */
+/** Draw a monitor on a desk with live per-kerbal data. */
 function drawMonitor(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -320,34 +1371,132 @@ function drawMonitor(
   roundRect(ctx, screenX, screenY, screenW, screenH, 1);
   ctx.fill();
 
-  // Flickering data lines on screen
   const now = Date.now();
-  const seed = assignedName ? hashString(assignedName) : 0;
+  const kerbal = assignedName ? kerbalStore.getByName(assignedName) : undefined;
 
-  ctx.strokeStyle = `rgba(80, 255, 180, ${0.25 + 0.1 * Math.sin(now / 1500)})`;
-  ctx.lineWidth = 0.5;
+  // Base font size scales with screen height
+  const fs = Math.max(5, Math.round(screenH * 0.14));
+  const padding = 2;
 
-  for (let i = 0; i < 3; i++) {
-    const ly = screenY + screenH * (0.15 + i * 0.25) + Math.sin(now / 2000 + seed + i) * 1.5;
-    const lineLen = screenW * (0.4 + 0.3 * Math.sin(now / 3000 + seed * 2 + i));
+  ctx.textBaseline = 'top';
 
-    ctx.beginPath();
-    ctx.moveTo(screenX + 3, ly);
-    ctx.lineTo(screenX + 3 + lineLen, ly);
-    ctx.stroke();
+  if (!kerbal || !kerbal.present) {
+    // ---- Off-shift / unassigned state ----
+    ctx.fillStyle = `rgba(80, 100, 90, ${0.4 + 0.15 * Math.sin(now / 2500)})`;
+    ctx.font = `${fs}px "Courier New", monospace`;
+    ctx.textAlign = 'left';
+    const label = kerbal ? 'OFF-SHIFT' : 'UNASSIGNED';
+    ctx.fillText(label, screenX + padding, screenY + screenH * 0.35);
 
-    // Blinking dot at end of line
-    if (Math.sin(now / 800 + seed + i * 3) > 0) {
-      ctx.fillStyle = 'rgba(80, 255, 180, 0.8)';
-      ctx.beginPath();
-      ctx.arc(screenX + 3 + lineLen, ly, 1, 0, Math.PI * 2);
-      ctx.fill();
+    // Dimmed screen reflection
+    const dimReflection = ctx.createLinearGradient(x, y + h * 0.9, x, y + h * 0.9 + 6);
+    dimReflection.addColorStop(0, `rgba(80, 100, 90, ${0.06 * glowIntensity})`);
+    dimReflection.addColorStop(1, 'rgba(80, 100, 90, 0)');
+    ctx.fillStyle = dimReflection;
+    ctx.fillRect(x, y + h * 0.9, w, 6);
+    return;
+  }
+
+  // ---- Live kerbal state ----
+
+  // Mood color
+  const moodColor = (() => {
+    switch (kerbal.mood) {
+      case 'excited': case 'ecstatic': return '#66ff66';
+      case 'tired': case 'groggy': return '#ffaa33';
+      case 'annoyed': case 'anxious': return '#ff6644';
+      default: return '#80ffcc';
     }
+  })();
+
+  const intensity = kerbal.moodIntensity ?? 0.5;
+
+  // 1. Name line with mood dot
+  const nameY = screenY + 3;
+  ctx.textAlign = 'left';
+  ctx.font = `bold ${fs}px "Courier New", monospace`;
+
+  // Mood dot
+  ctx.fillStyle = moodColor;
+  ctx.fillText('●', screenX + padding, nameY);
+
+  // Name
+  ctx.fillStyle = `rgba(200, 255, 220, ${0.85 + 0.15 * Math.sin(now / 1800 + hashString(assignedName!))})`;
+  const nameX = screenX + padding + fs * 1.2;
+  ctx.fillText(kerbal.name.toUpperCase(), nameX, nameY);
+
+  // 2. Position status line
+  const posY = nameY + fs * 1.4;
+  const posColor = kerbal.position === 'desk' ? '#80ffcc'
+    : kerbal.position === 'coffee' ? '#ffcc44'
+    : kerbal.position === 'entering' || kerbal.position === 'leaving' ? '#66aaff'
+    : '#ff8844';
+  const posLabel = (() => {
+    switch (kerbal.position) {
+      case 'desk': return 'ACTIVE';
+      case 'coffee': return '☕ COFFEE';
+      case 'break': return 'BREAK';
+      case 'entering': return 'ARRIVING';
+      case 'leaving': return 'DEPARTING';
+      case 'bathroom': return 'RESTROOM';
+      case 'lunch': return 'LUNCH';
+      case 'snack': return 'SNACK';
+      default: return kerbal.position.toUpperCase();
+    }
+  })();
+
+  ctx.font = `${Math.round(fs * 0.75)}px "Courier New", monospace`;
+  ctx.fillStyle = posColor;
+  ctx.textAlign = 'left';
+  ctx.fillText(posLabel, screenX + padding, posY);
+
+  // 3. Mood intensity bar (animated waveform)
+  const barY = posY + fs * 1.2;
+  const barH = Math.max(2, Math.round(screenH * 0.12));
+  const barW = screenW - padding * 2;
+
+  // Bar background
+  ctx.fillStyle = 'rgba(60, 60, 80, 0.5)';
+  ctx.fillRect(screenX + padding, barY, barW, barH);
+
+  // Fill bar to intensity
+  const fillW = barW * intensity;
+  ctx.fillStyle = moodColor;
+  ctx.globalAlpha = 0.6 + 0.3 * (0.5 + 0.5 * Math.sin(now / 1200 + hashString(assignedName!)));
+  ctx.fillRect(screenX + padding, barY, fillW, barH);
+  ctx.globalAlpha = 1;
+
+  // Bar border
+  ctx.strokeStyle = 'rgba(80, 255, 180, 0.3)';
+  ctx.lineWidth = 0.4;
+  ctx.strokeRect(screenX + padding, barY, barW, barH);
+
+  // 4. Blinking activity dot
+  const dotY = barY + barH + fs * 0.3;
+  ctx.fillStyle = `rgba(80, 255, 180, ${0.3 + 0.4 * (0.5 + 0.5 * Math.sin(now / 600 + hashString(assignedName!)))})`;
+  ctx.beginPath();
+  ctx.arc(screenX + padding + 3, dotY + 1.5, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = `rgba(80, 255, 180, ${0.15 + 0.1 * Math.sin(now / 1400)})`;
+  ctx.font = `${Math.round(fs * 0.5)}px "Courier New", monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillText('SYS OK', screenX + padding + 5, dotY);
+
+  // 5. Scan-line flicker overlay (thin, adds terminal feel)
+  ctx.strokeStyle = 'rgba(50, 255, 180, 0.04)';
+  ctx.lineWidth = 0.3;
+  for (let i = 0; i < 4; i++) {
+    const ly = screenY + (screenH / 5) * (i + 1) + Math.sin(now / 2000 + i) * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(screenX + 1, ly);
+    ctx.lineTo(screenX + screenW - 1, ly);
+    ctx.stroke();
   }
 
   // Screen glow reflection onto desk
   const reflectionGrad = ctx.createLinearGradient(x, y + h * 0.9, x, y + h * 0.9 + 8);
-  reflectionGrad.addColorStop(0, `rgba(80, 255, 180, ${0.12 * glowIntensity})`);
+  reflectionGrad.addColorStop(0, `rgba(${kerbal.position === 'desk' ? '80,255,180' : '255,200,100'}, ${0.12 * glowIntensity})`);
   reflectionGrad.addColorStop(1, 'rgba(80, 255, 180, 0)');
   ctx.fillStyle = reflectionGrad;
   ctx.fillRect(x, y + h * 0.9, w, 8);
@@ -479,68 +1628,102 @@ const DOOR_WIDTH_RATIO = 0.08;
 /** Door height as fraction of display height. */
 const DOOR_HEIGHT_RATIO = 0.22;
 
-/** Draw the exit door on the back wall near the entrance. */
-function drawDoor(ctx: CanvasRenderingContext2D, displayW: number, displayH: number, swingAngle: number = 0, handleAngle: number = 0): void {
+/** Draw the exit door on the back wall near the entrance — slides horizontally. */
+function drawDoor(ctx: CanvasRenderingContext2D, displayW: number, displayH: number, slideOffset: number = 0): void {
   const cx = (DOOR_POSITION.x / 100) * displayW;
   const cy = (DOOR_POSITION.y / 100) * displayH;
   const dw = displayW * DOOR_WIDTH_RATIO;
   const dh = displayH * DOOR_HEIGHT_RATIO;
-  const s = Math.min(displayW, displayH) / 720; // scale relative to 720p reference
+  const s = Math.min(displayW, displayH) / 720;
 
-  // Apply swing rotation around left edge (hinge side)
-  ctx.save();
-  if (swingAngle !== 0) {
-    ctx.translate(cx - dw / 2, cy);
-    ctx.rotate(swingAngle);
-    ctx.translate(-(cx - dw / 2), -cy);
-  }
-
-  // Outside light through door gap (draw before door so it appears behind)
-  if (swingAngle < -0.1) {
-    const gapWidth = Math.abs(swingAngle) / (Math.PI / 2.5) * dw * 0.3;
-    const grad = ctx.createLinearGradient(cx - dw / 2 + dw - gapWidth, 0, cx - dw / 2 + dw, 0);
-    grad.addColorStop(0, 'rgba(255,200,100,0)');
-    grad.addColorStop(1, 'rgba(255,200,100,0.3)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(cx - dw / 2 + dw - gapWidth, cy - dh, gapWidth, dh);
-  }
-
-  // Door frame (darker wood)
-  ctx.fillStyle = '#4a3728';
+  // Door frame (dark industrial steel) — stays fixed
+  ctx.fillStyle = '#3a3c40';
   ctx.fillRect(cx - dw / 2, cy - dh, dw, dh);
 
-  // Door panel (lighter wood)
-  ctx.fillStyle = '#6b4c3b';
-  ctx.fillRect(cx - dw / 2 + 2 * s, cy - dh + 2 * s, dw - 4 * s, dh - 4 * s);
+  // Frame border rivets
+  ctx.strokeStyle = '#55575c';
+  ctx.lineWidth = 2 * s;
+  ctx.strokeRect(cx - dw / 2 + 1, cy - dh + 1, dw - 2, dh - 2);
+
+  // Top sliding rail (industrial metal)
+  ctx.fillStyle = '#50555c';
+  ctx.fillRect(cx - dw / 2 - 6 * s, cy - dh - 4 * s, dw + 12 * s, 6 * s);
+  ctx.fillStyle = '#656a72';
+  ctx.fillRect(cx - dw / 2 - 4 * s, cy - dh - 2 * s, dw + 8 * s, 2 * s);
+
+  // Outside light through door gap
+  if (slideOffset > 1) {
+    const gapWidth = Math.min(slideOffset, dw - 4 * s);
+    const grad = ctx.createLinearGradient(cx - dw / 2, 0, cx - dw / 2 + gapWidth, 0);
+    grad.addColorStop(0, 'rgba(255,200,100,0.35)');
+    grad.addColorStop(1, 'rgba(255,200,100,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(cx - dw / 2, cy - dh + 2 * s, gapWidth, dh - 4 * s);
+  }
+
+  // Door panel (metallic gray-blue) — slides right
+  const doorX = cx - dw / 2 + 2 * s + slideOffset;
+  ctx.fillStyle = '#8a9aa8';
+  ctx.fillRect(doorX, cy - dh + 2 * s, dw - 4 * s, dh - 4 * s);
+
+  // Panel border (darker metallic edge)
+  ctx.strokeStyle = '#6a7a88';
+  ctx.lineWidth = 1.5 * s;
+  ctx.strokeRect(doorX + 2 * s, cy - dh + 4 * s, dw - 8 * s, dh - 8 * s);
 
   // Top inset panel on door
-  ctx.fillStyle = '#5a3d2f';
-  ctx.fillRect(cx - dw / 2 + 5 * s, cy - dh + 6 * s, dw - 10 * s, dh * 0.35);
+  ctx.fillStyle = '#748494';
+  roundRect(ctx, doorX + 4 * s, cy - dh + 6 * s, dw - 12 * s, dh * 0.3, 3 * s);
+  ctx.fill();
 
   // Bottom inset panel on door
-  ctx.fillStyle = '#5a3d2f';
-  ctx.fillRect(cx - dw / 2 + 5 * s, cy - dh * 0.5, dw - 10 * s, dh * 0.38);
+  ctx.fillStyle = '#748494';
+  roundRect(ctx, doorX + 4 * s, cy - dh * 0.52, dw - 12 * s, dh * 0.36, 3 * s);
+  ctx.fill();
 
-  // Door handle (brass) — rotates when door opens
+  // Warning stripes (yellow/black hazard) at bottom of door
+  const stripeY = cy - 6 * s;
+  const stripeH = 6 * s;
   ctx.save();
-  ctx.translate(cx + dw / 2 - 6 * s, cy - dh / 2);
-  ctx.rotate(handleAngle);
-  ctx.fillStyle = '#cd9b4a';
   ctx.beginPath();
-  ctx.ellipse(0, 0, 3 * s, 1.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // Handle highlight
-  ctx.fillStyle = '#deb76a';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 1.5 * s, 0.8 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.rect(doorX + 3 * s, stripeY, dw - 10 * s, stripeH);
+  ctx.clip();
+  const stripeW = 8 * s;
+  for (let sx = doorX + 3 * s; sx < doorX + dw - 3 * s; sx += stripeW * 2) {
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(sx, stripeY, stripeW, stripeH);
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(sx + stripeW, stripeY, stripeW, stripeH);
+  }
   ctx.restore();
 
-  ctx.restore();
+  // Chrome handle (slides with door)
+  ctx.fillStyle = '#c0c8d0';
+  ctx.shadowColor = 'rgba(0,0,0,0.3)';
+  ctx.shadowBlur = 3 * s;
+  roundRect(ctx, doorX + dw - 10 * s, cy - dh * 0.55, 4 * s, dh * 0.15, 2 * s);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#909aa5';
+  roundRect(ctx, doorX + dw - 9 * s, cy - dh * 0.53, 2 * s, dh * 0.11, 1 * s);
+  ctx.fill();
 
-  // "EXIT" text indicator above door (small rectangle) — not affected by swing
-  ctx.fillStyle = '#cc3333';
-  ctx.fillRect(cx - 10 * s, cy - dh - 6 * s, 20 * s, 4 * s);
+  // RED "EXIT" sign above door — KSC style
+  ctx.fillStyle = '#cc2222';
+  roundRect(ctx, cx - 14 * s, cy - dh - 8 * s, 28 * s, 6 * s, 2 * s);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${4 * s}px "Courier New", monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('EXIT', cx, cy - dh - 5 * s);
+
+  // Small green indicator light (next to EXIT sign)
+  ctx.fillStyle = slideOffset > 5 ? '#33cc33' : '#66ee66';
+  ctx.beginPath();
+  ctx.arc(cx + 18 * s, cy - dh - 5 * s, 2 * s, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // ---------------------------------------------------------------------------
@@ -719,12 +1902,13 @@ function getRandomFloorPos(displayW: number, displayH: number): { x: number; y: 
 // Draw-item types for unified z-sorted rendering
 // ---------------------------------------------------------------------------
 
-export const DrawItemType = {
+const DrawItemType = {
   desk: 'desk',
   sprite: 'sprite',
   'coffee-station': 'coffee-station',
   'coffee-cup': 'coffee-cup',
   door: 'door',
+  chair: 'chair',
 } as const;
 
 type DrawItemType = (typeof DrawItemType)[keyof typeof DrawItemType];
@@ -734,6 +1918,8 @@ interface DrawItem {
   itemType: DrawItemType;
   desk?: DeskPosition;
   sprite?: KerbalSprite;
+  /** For split-rendering sitting kerbals. 'lower'=legs+chair behind desk, 'upper'=torso+head above desk. */
+  renderPart?: 'full' | 'lower' | 'upper';
 }
 
 // ---------------------------------------------------------------------------
@@ -749,14 +1935,10 @@ const RoomCanvas: React.FC = () => {
   const prevPresentRef = useRef<Set<string>>(new Set());
   /** True after the first sync — prevents walk-in animation on page load. */
   const initialisedRef = useRef(false);
-  /** Whether the door is currently open (click toggles). */
+  /** Whether the door is currently open (kerbal proximity toggles). */
   const doorOpenRef = useRef(false);
-  /** Interpolated swing angle for smooth animation. */
-  const doorSwingRef = useRef(0);
-  /** Angular velocity for spring-physics door swing. */
-  const doorVelocityRef = useRef(0);
-  /** Door handle rotation angle (0 = neutral, positive = turned). */
-  const handleAngleRef = useRef(0);
+  /** Slide offset (0 = closed, >0 = slid to the right). */
+  const doorSlideOffsetRef = useRef(0);
   /** Timer ID for auto-closing the door after a kerbal passes through. */
   const doorAutoCloseTimerRef = useRef<number | null>(null);
 
@@ -817,6 +1999,15 @@ const RoomCanvas: React.FC = () => {
     return desk ? { x: desk.x, y: desk.y } : undefined;
   }
 
+  /** Calculate the chair position (desk center X + desk bottom Y) for a given desk. */
+  function getChairTargetXY(desk: { x: number; y: number }, displayW: number, displayH: number): { x: number; y: number } {
+    const dx = (desk.x / 100) * displayW;
+    const dy = (desk.y / 100) * displayH;
+    // dw = displayW * 0.09, dh = displayH * 0.12
+    // Chair is at dx + dw/2, dy + dh*0.45
+    return { x: dx + displayW * 0.045, y: dy + displayH * 0.054 };
+  }
+
   // -----------------------------------------------------------------------
   // Sync sprites with kerbalStore  (called only when store changes)
   // -----------------------------------------------------------------------
@@ -824,6 +2015,7 @@ const RoomCanvas: React.FC = () => {
   const syncSprites = useCallback(() => {
     const present = kerbalStore.getPresent();
     const presentNames = new Set(present.map((k: KerbalState) => k.name));
+    console.log('[DBG] syncSprites called, present:', present.map(k => k.name), 'existing sprites:', Array.from(spritesRef.current.keys()));
 
     const { displayW, displayH } = sizesRef.current;
     const entranceX = (ENTRANCE_POSITION.x / 100) * displayW;
@@ -852,16 +2044,18 @@ const RoomCanvas: React.FC = () => {
       };
 
       if (isInitial && desk) {
-        // First load — spawn at desk already sitting, no walk-in
-        const sx = (desk.x / 100) * displayW;
-        const sy = (desk.y / 100) * displayH;
+        // First load — spawn at chair already sitting, no walk-in
+        const chairPos = getChairTargetXY(desk, displayW, displayH);
+        const sx = chairPos.x;
+        const sy = chairPos.y;
         const sprite = new KerbalSprite(kerbal.name, stubSoul, sx, sy);
         sprite.setState('sitting');
         spritesRef.current.set(kerbal.name, sprite);
       } else {
-        // Actual arrival — walk in from entrance
-        const targetX = desk ? (desk.x / 100) * displayW : entranceX;
-        const targetY = desk ? (desk.y / 100) * displayH : entranceY;
+        // Actual arrival — walk in from entrance to chair
+        const targetPos = desk ? getChairTargetXY(desk, displayW, displayH) : null;
+        const targetX = targetPos ? targetPos.x : entranceX;
+        const targetY = targetPos ? targetPos.y : entranceY;
         const sprite = new KerbalSprite(kerbal.name, stubSoul, entranceX, entranceY);
         sprite.setState('entering');
         sprite.moveTo(targetX, targetY, WALK_DURATION);
@@ -875,7 +2069,7 @@ const RoomCanvas: React.FC = () => {
       if (!presentNames.has(name)) {
         if (!transitioningRef.current.has(name)) {
           sprite.setState('leaving');
-          sprite.moveTo(entranceX, entranceY, WALK_DURATION);
+          sprite.moveTo(entranceX, entranceY, LEAVE_DURATION);
           transitioningRef.current.set(name, 'leaving');
         }
       }
@@ -888,10 +2082,11 @@ const RoomCanvas: React.FC = () => {
         if (sprite) {
           const desk = getDeskForKerbalFromLayout(kerbal.name);
           if (desk) {
+            const chairPos = getChairTargetXY(desk, displayW, displayH);
             sprite.setState('entering');
             sprite.moveTo(
-              (desk.x / 100) * displayW,
-              (desk.y / 100) * displayH,
+              chairPos.x,
+              chairPos.y,
               WALK_DURATION * 0.5,
             );
             transitioningRef.current.set(kerbal.name, 'entering');
@@ -939,7 +2134,7 @@ const RoomCanvas: React.FC = () => {
     lastTimeRef.current = timestamp;
 
     const timeState: TimeState = timeSystem.getTime();
-    const timeOfDay = timeState.currentHour / 24; // 0..1, 0=midnight, 0.5=noon
+    const timeOfDay = (timeState.currentHour + timeState.currentMinute / 60) / 24; // 0..1, 0=midnight, 0.5=noon
 
     // ---- 1. Clear ----
     ctx.clearRect(0, 0, w, h);
@@ -951,36 +2146,33 @@ const RoomCanvas: React.FC = () => {
     ctx.restore();
 
     // ---- 3. Update all sprites (once per frame) ----
+    if (spritesRef.current.size === 0 && Math.random() < 0.01) {
+      console.log('[DBG] renderLoop: spritesRef is EMPTY');
+    }
     for (const sprite of spritesRef.current.values()) {
       sprite.update(deltaTime);
     }
 
-    // ---- 3b. Animate door with spring physics (overshoot + oscillation) ----
-    const DOOR_TARGET_ANGLE = doorOpenRef.current ? -Math.PI / 2.5 : 0;
-    const stiffness = 0.03;
-    const damping = 0.85;
-    const force = (DOOR_TARGET_ANGLE - doorSwingRef.current) * stiffness;
-    doorVelocityRef.current = doorVelocityRef.current * damping + force;
-    doorSwingRef.current += doorVelocityRef.current;
-
-
-    // ---- 3b2. Animate door handle rotation ----
-    const DOOR_HANDLE_OPEN_ANGLE = 0.6;
-    const targetHandleAngle = doorOpenRef.current ? DOOR_HANDLE_OPEN_ANGLE : 0;
-    handleAngleRef.current += (targetHandleAngle - handleAngleRef.current) * 0.12;
+    // ---- 3b. Animate door with smooth slide ----
+    const doorWidth = displayW * DOOR_WIDTH_RATIO;
+    const DOOR_TARGET_OFFSET = doorOpenRef.current ? doorWidth : 0;
+    doorSlideOffsetRef.current += (DOOR_TARGET_OFFSET - doorSlideOffsetRef.current) * 0.08;
+    // Snap when close enough to prevent micro-gaps
+    if (Math.abs(doorSlideOffsetRef.current - DOOR_TARGET_OFFSET) < 0.5) {
+      doorSlideOffsetRef.current = DOOR_TARGET_OFFSET;
+    }
 
     // ---- 3b2. Auto-open door when kerbals approach/leave ----
-    const doorPosX = (DOOR_POSITION.x / 100) * displayW;
-    const doorPosY = (DOOR_POSITION.y / 100) * displayH;
+    // Use entrance floor position (not door wall position) — kerbals walk the floor
+    const entrancePixelX = (ENTRANCE_POSITION.x / 100) * displayW;
+    const entrancePixelY = (ENTRANCE_POSITION.y / 100) * displayH;
     let kerbalNearDoor = false;
     for (const sprite of spritesRef.current.values()) {
-      if (sprite.state === 'entering' || sprite.state === 'leaving') {
-        const pos = sprite.getPosition();
-        const dist = Math.hypot(pos.x - doorPosX, pos.y - doorPosY);
-        if (dist < 10) {
-          kerbalNearDoor = true;
-          break;
-        }
+      const pos = sprite.getPosition();
+      const dist = Math.hypot(pos.x - entrancePixelX, pos.y - entrancePixelY);
+      if (dist < 40) {
+        kerbalNearDoor = true;
+        break;
       }
     }
     if (kerbalNearDoor) {
@@ -1021,9 +2213,10 @@ const RoomCanvas: React.FC = () => {
           sprite.setState('entering');
           const desk = getDeskForKerbalFromLayout(name);
           if (desk) {
+            const chairPos = getChairTargetXY(desk, dw, dh);
             sprite.moveTo(
-              (desk.x / 100) * dw,
-              (desk.y / 100) * dh,
+              chairPos.x,
+              chairPos.y,
               WALK_DURATION + Math.random() * 1000,
             );
           }
@@ -1044,16 +2237,38 @@ const RoomCanvas: React.FC = () => {
 
     const drawItems: DrawItem[] = [];
 
-    // Desks
+    // Desks + chairs (separate draw items for correct z-ordering)
     for (const desk of DESK_POSITIONS) {
       drawItems.push({ y: desk.y, itemType: 'desk', desk });
+      // Chair at floor level — renders BEFORE the desk, AFTER the door
+      drawItems.push({ y: desk.y, itemType: 'chair', desk });
     }
 
     // Sprites (use their assigned desk Y for correct row z-ordering)
+    // Sitting kerbals are split into TWO draw items for correct desk occlusion:
+    //   lower (legs+shadow) renders BEFORE desk (zPriority=0)
+    //   upper (body+head) renders AFTER desk (zPriority=2)
     for (const sprite of spritesRef.current.values()) {
       const desk = getDeskForKerbalFromLayout(sprite.name);
-      const spriteY = desk ? desk.y : sprite.getPosition().y;
-      drawItems.push({ y: spriteY, itemType: 'sprite', sprite });
+      let spriteY: number;
+      if (sprite.state === 'sitting') {
+        // Sitting sprites use desk Y (percentage) for row-based z-ordering so upper/lower
+        // body parts sort correctly relative to the desk surface.
+        spriteY = desk ? desk.y : sprite.getPosition().y;
+      } else if (awayStatesRef.current.has(sprite.name)) {
+        // Away-from-desk (coffee, visit, stretch, etc.): use actual pixel position
+        // converted to percentage Y so the kerbal sorts at the correct z-order
+        // position (e.g. coffee station Y ~80%) rather than at their assigned desk Y.
+        spriteY = (sprite.getPosition().y / dh) * 100;
+      } else {
+        spriteY = desk ? desk.y : sprite.getPosition().y;
+      }
+      if (sprite.state === 'sitting') {
+        drawItems.push({ y: spriteY, itemType: 'sprite', sprite, renderPart: 'lower' });
+        drawItems.push({ y: spriteY, itemType: 'sprite', sprite, renderPart: 'upper' });
+      } else {
+        drawItems.push({ y: spriteY, itemType: 'sprite', sprite, renderPart: 'full' });
+      }
     }
 
     // Coffee station — on the floor to the right
@@ -1063,7 +2278,7 @@ const RoomCanvas: React.FC = () => {
     drawItems.push({ y: DOOR_POSITION.y, itemType: 'door' });
 
     // Sort: lower Y first (back rows behind front rows);
-    // Sitting sprites render before desks at same Y (kerbal sits behind desk);
+    // Sitting sprites render after desks so kerbal's upper body is visible above desk surface;
     // non-sitting sprites render after desks (kerbal is in front of desk).
     drawItems.sort((a, b) => {
       if (a.y !== b.y) return a.y - b.y;
@@ -1071,22 +2286,37 @@ const RoomCanvas: React.FC = () => {
     });
 
     function zPriority(item: DrawItem): number {
+      if (item.itemType === 'sprite' && item.sprite?.state === 'sitting') {
+        // Both upper and lower body render BEHIND the desk (zPriority < desk=1).
+        // The upper body's head naturally extends above the desk's visual Y-range,
+        // so it appears visible above the desk surface while the body below is
+        // properly hidden behind the desk — no floating effect.
+        return 0;
+      }
       switch (item.itemType) {
         case 'door':
           return -2;
+        case 'chair':
+          return -1;
         case 'sprite':
-          return item.sprite?.state === 'sitting' ? -1 : 3;
+          return 3;
         case 'desk':
-          return 0;
-        case 'coffee-station':
           return 1;
-        case 'coffee-cup':
+        case 'coffee-station':
           return 2;
+        case 'coffee-cup':
+          return 3;
       }
     }
 
     // ---- 5. Render draw items and detect completed transitions ----
     const toRemove: string[] = [];
+
+    // Track which sprites have already had their transition logic run this frame.
+    // Sitting kerbals have two draw items (lower+upper); the transition logic
+    // (entering/leaving detect, activity handling, desk-return check) must
+    // run only ONCE per sprite per frame to avoid double-processing.
+    const transitionedThisFrame = new Set<string>();
 
     ctx.save();
     ctx.scale(w / displayW, h / displayH);
@@ -1101,14 +2331,7 @@ const RoomCanvas: React.FC = () => {
             const dh = displayH * 0.12;
             const deskY = dy - dh * 0.55;
 
-            // Draw chair at desk if assigned kerbal is sitting
-            if (item.desk.assignedKerbal) {
-              const sprite = spritesRef.current.get(item.desk.assignedKerbal);
-              if (sprite && sprite.state === 'sitting') {
-                drawChairAtDesk(ctx, dx, dy);
-              }
-            }
-
+            // Desk surface only (chair is a separate draw item)
             drawDesk(ctx, {
               x: dx,
               y: deskY,
@@ -1122,84 +2345,100 @@ const RoomCanvas: React.FC = () => {
           }
           break;
         }
+        case 'chair': {
+          if (item.desk) {
+            const dx = (item.desk.x / 100) * displayW;
+            const dy = (item.desk.y / 100) * displayH;
+            const dw = displayW * 0.09;
+            const dh = displayH * 0.12;
+            const deskBtmY = dy + dh * 0.45;
+            drawChairAtDesk(ctx, dx + dw / 2, deskBtmY);
+          }
+          break;
+        }
         case 'sprite': {
           if (item.sprite) {
-            item.sprite.render(ctx, timeOfDay);
+            // Render only the specified part (or full for non-sitting kerbals)
+            item.sprite.render(ctx, timeOfDay, item.renderPart);
 
-            // Check if a transition has completed
-            const transition = transitioningRef.current.get(item.sprite.name);
-            if (transition === 'entering' && item.sprite.state === 'idle') {
-              // Entering walk finished — sit at desk if assigned
-              transitioningRef.current.delete(item.sprite.name);
-              const desk = getDeskForKerbalFromLayout(item.sprite.name);
-              if (desk) {
-                item.sprite.setState('sitting');
-              }
-            } else if (transition === 'leaving' && item.sprite.state === 'idle') {
-              // Leaving walk finished — kerbal has reached the exit, remove sprite
-              toRemove.push(item.sprite.name);
-              transitioningRef.current.delete(item.sprite.name);
-            }
+            // Run transition/activity logic only ONCE per sprite per frame
+            if (!transitionedThisFrame.has(item.sprite.name)) {
+              transitionedThisFrame.add(item.sprite.name);
 
-            // ---- Autonomous activity handling ----
-            const away = awayStatesRef.current.get(item.sprite.name);
-            if (away && !item.sprite.isMoving) {
-              const now = Date.now();
-              // First frame after arrival — record the time
-              if (away.arrivedAt === 0) {
-                away.arrivedAt = now;
-              }
-              const elapsed = now - away.arrivedAt;
-
-              // Handle bathroom/lunch — kerbal leaves the room
-              if (away.activity === 'bathroom' || away.activity === 'lunch') {
-                // Kerbal arrived at entrance, remove sprite (they leave the room)
-                if (elapsed < 100) {
-                  toRemove.push(item.sprite.name);
-                  kerbalStore.goOnBreak(item.sprite.name, away.activity as 'bathroom' | 'lunch', away.activityDuration);
+              // Check if a transition has completed
+              const transition = transitioningRef.current.get(item.sprite.name);
+              if (transition === 'entering' && !item.sprite.isMoving) {
+                // Entering walk finished — sit at desk if assigned
+                // (KerbalSprite.update now sets state to 'sitting' automatically
+                // when entering movement completes; this just cleans up the tracking)
+                transitioningRef.current.delete(item.sprite.name);
+                const desk = getDeskForKerbalFromLayout(item.sprite.name);
+                if (desk && item.sprite.state !== 'sitting') {
+                  item.sprite.setState('sitting');
                 }
-                // Do not do activity animations for bathroom/lunch
-                // The return-from-away check earlier in the render loop handles re-entry
-                continue;
+              } else if (transition === 'leaving' && item.sprite.state === 'idle') {
+                // Leaving walk finished — kerbal has reached the exit, remove sprite
+                toRemove.push(item.sprite.name);
+                transitioningRef.current.delete(item.sprite.name);
               }
 
-              if (item.sprite.state === 'idle' && elapsed < away.activityDuration) {
-                // Just arrived at activity target — start the activity pose
-                if (away.activity === 'coffee') {
-                  item.sprite.setState('drinking');
-                } else if (away.activity === 'stretch') {
-                  item.sprite.setState('stretching');
-                } else if (away.activity === 'visit') {
-                  item.sprite.setState('typing');
-                } else {
-                  item.sprite.setState('idle');
+              // ---- Autonomous activity handling ----
+              const away = awayStatesRef.current.get(item.sprite.name);
+              if (away && !item.sprite.isMoving) {
+                const now = Date.now();
+                // First frame after arrival — record the time
+                if (away.arrivedAt === 0) {
+                  away.arrivedAt = now;
+                }
+                const elapsed = now - away.arrivedAt;
+
+                // Handle bathroom/lunch — kerbal leaves the room
+                if (away.activity === 'bathroom' || away.activity === 'lunch') {
+                  // Kerbal arrived at entrance, remove sprite (they leave the room)
+                  if (elapsed < 100) {
+                    toRemove.push(item.sprite.name);
+                    kerbalStore.goOnBreak(item.sprite.name, away.activity as 'bathroom' | 'lunch', away.activityDuration);
+                  }
+                  // Do not do activity animations for bathroom/lunch
+                  continue;
+                }
+
+                if (item.sprite.state === 'idle' && elapsed < away.activityDuration) {
+                  // Just arrived at activity target — start the activity pose
+                  if (away.activity === 'coffee') {
+                    item.sprite.setState('drinking');
+                  } else if (away.activity === 'stretch') {
+                    item.sprite.setState('stretching');
+                  } else if (away.activity === 'visit') {
+                    item.sprite.setState('typing');
+                  } else {
+                    item.sprite.setState('idle');
+                  }
+                }
+
+                if (elapsed >= away.activityDuration && item.sprite.state !== 'walking') {
+                  // Activity done — walk back to desk
+                  const desk = getDeskForKerbalFromLayout(item.sprite.name);
+                  if (desk) {
+                    const chairPos = getChairTargetXY(desk, displayW, displayH);
+                    item.sprite.moveTo(chairPos.x, chairPos.y, 2000 + Math.random() * 1500);
+                    awayStatesRef.current.delete(item.sprite.name);
+                    // Will sit after arriving back (handled below)
+                  }
                 }
               }
 
-              if (elapsed >= away.activityDuration && item.sprite.state !== 'walking') {
-                // Activity done — walk back to desk
+              // Kerbal just walked back to desk from an activity — sit down
+              if (!away && !item.sprite.isMoving && item.sprite.state === 'idle') {
                 const desk = getDeskForKerbalFromLayout(item.sprite.name);
                 if (desk) {
-                  const dx = (desk.x / 100) * displayW;
-                  const dy = (desk.y / 100) * displayH;
-                  item.sprite.moveTo(dx, dy, 2000 + Math.random() * 1500);
-                  awayStatesRef.current.delete(item.sprite.name);
-                  // Will sit after arriving back (handled below)
-                }
-              }
-            }
-
-            // Kerbal just walked back to desk from an activity — sit down
-            if (!away && !item.sprite.isMoving && item.sprite.state === 'idle') {
-              const desk = getDeskForKerbalFromLayout(item.sprite.name);
-              if (desk) {
-                const dx = (desk.x / 100) * displayW;
-                const dy = (desk.y / 100) * displayH;
-                const pos = item.sprite.getPosition();
-                const nearDesk = Math.abs(pos.x - dx) < 12 && Math.abs(pos.y - dy) < 12;
-                const isTransitioning = transitioningRef.current.has(item.sprite.name);
-                if (nearDesk && !isTransitioning) {
-                  item.sprite.setState('sitting');
+                  const chairPos = getChairTargetXY(desk, displayW, displayH);
+                  const pos = item.sprite.getPosition();
+                  const nearDesk = Math.abs(pos.x - chairPos.x) < 18 && Math.abs(pos.y - chairPos.y) < 18;
+                  const isTransitioning = transitioningRef.current.has(item.sprite.name);
+                  if (nearDesk && !isTransitioning) {
+                    item.sprite.setState('sitting');
+                  }
                 }
               }
             }
@@ -1211,7 +2450,7 @@ const RoomCanvas: React.FC = () => {
           break;
         }
         case 'door': {
-          drawDoor(ctx, displayW, displayH, doorSwingRef.current, handleAngleRef.current);
+          drawDoor(ctx, displayW, displayH, doorSlideOffsetRef.current);
           break;
         }
       }
@@ -1262,10 +2501,8 @@ const RoomCanvas: React.FC = () => {
         if (!transitioning && !sprite.isMoving) {
           const desk = getDeskForKerbalFromLayout(name);
           if (desk) {
-            sprite.setPosition(
-              (desk.x / 100) * displayW,
-              (desk.y / 100) * displayH,
-            );
+            const chairPos = getChairTargetXY(desk, displayW, displayH);
+            sprite.setPosition(chairPos.x, chairPos.y);
           }
         }
       }
@@ -1289,8 +2526,9 @@ const RoomCanvas: React.FC = () => {
         const desk = getDeskForKerbalFromLayout(name);
         if (!desk) continue;
 
-        const dx = (desk.x / 100) * displayW;
-        const dy = (desk.y / 100) * displayH;
+        const chairPos = getChairTargetXY(desk, displayW, displayH);
+        const dx = chairPos.x;
+        const dy = chairPos.y;
 
         // Choose activity
         const roll = Math.random();
@@ -1311,8 +2549,9 @@ const RoomCanvas: React.FC = () => {
           const otherDesks = DESK_POSITIONS.filter(d => d.assignedKerbal !== name && d.assignedKerbal);
           if (otherDesks.length === 0) continue;
           const pick = otherDesks[Math.floor(Math.random() * otherDesks.length)];
-          targetX = (pick.x / 100) * displayW;
-          targetY = (pick.y / 100) * displayH;
+          const pickChair = getChairTargetXY(pick, displayW, displayH);
+          targetX = pickChair.x;
+          targetY = pickChair.y;
           duration = 4000 + Math.random() * 5000;
         } else if (roll < 0.5) {
           // Stretch near desk
@@ -1327,11 +2566,24 @@ const RoomCanvas: React.FC = () => {
           targetY = entranceY;
           duration = 180_000 + Math.random() * 300_000; // 3-8 minutes
         } else if (roll < 0.75) {
-          // Lunch break — walk to entrance, leave, return
-          activity = 'lunch';
-          targetX = entranceX;
-          targetY = entranceY;
-          duration = 900_000 + Math.random() * 900_000; // 15-30 minutes
+          // Lunch break — only during appropriate hours
+          const currentHour = timeSystem.getTime().currentHour;
+          const isLunchTime =
+            (currentHour >= 10 && currentHour < 14) ||   // day shift (06-18)
+            (currentHour >= 22 || currentHour < 2);        // night shift (18-06)
+          if (!isLunchTime) {
+            // Redirect to wander outside lunch hours
+            activity = 'wander';
+            const randPos = getRandomFloorPos(displayW, displayH);
+            targetX = randPos.x;
+            targetY = randPos.y;
+            duration = 3000 + Math.random() * 5000;
+          } else {
+            activity = 'lunch';
+            targetX = entranceX;
+            targetY = entranceY;
+            duration = 900_000 + Math.random() * 900_000; // 15-30 minutes
+          }
         } else {
           // Wander to random floor spot
           activity = 'wander';

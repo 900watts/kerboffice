@@ -1,5 +1,5 @@
 /**
- * i18n — Lightweight internationalization for KSC Mission Control.
+ * i18n — Lightweight internationalization for KerbOffice.
  * Supports English (en), Chinese (zh), and Japanese (ja).
  * Uses React context for reactive language switching via useSyncExternalStore.
  *
@@ -59,6 +59,8 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.apiKeysDesc': 'Connect your own API keys to use custom AI providers. Keys are stored locally in your browser.',
     'settings.runsLocally': 'Runs locally \u2014 no API key needed',
     'settings.keySaved': 'Key saved',
+    'settings.noKeyForSelected': 'No API key set for this provider. Add one above, or switch to Ollama to chat locally.',
+    'settings.fallbackToOllama': 'No API key set \u2014 using Ollama (local) as fallback.',
     'settings.missionChatter': 'Mission Control Chatter',
     'settings.missionChatterOn': "Kerbals chat with each other when you're idle",
     'settings.missionChatterOff': 'Kerbals only respond when you message them',
@@ -76,7 +78,7 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.repositoryDesc': 'master \u2014 github.com/KSP-CKAN/CKAN-meta',
     'settings.manage': 'Manage',
     'settings.banter': 'Kerbal Banter',
-
+    
     // Mission Control
     'mc.loading': 'Loading Kerbal souls...',
     'mc.dayShift': 'Day shift arriving (06:00). Kerbals taking their stations.',
@@ -121,6 +123,29 @@ const translations: Record<Language, Record<string, string>> = {
     'status.onShift': 'On shift',
     'status.onBreak': 'On break',
     'status.offShift': 'Off shift',
+    'status.position.desk': 'At the desk',
+    'status.position.coffee': 'At the coffee machine',
+    'status.position.break': 'On a break',
+    'status.position.offshift': 'At home',
+    'status.position.entering': 'Just arriving',
+    'status.position.leaving': 'Heading out',
+    'status.position.bathroom': 'In the bathroom',
+    'status.position.lunch': 'At lunch',
+    'status.position.snack': 'Grabbing a snack',
+
+    // Wake prefixes (position-aware)
+    'wake.prefix.desk': '[GROGGY - just woke up]',
+    'wake.prefix.coffee': "[CAFFEINE-DEPRIVED - was getting coffee]",
+    'wake.prefix.break': '[MUFFLED - was on a break]',
+    'wake.prefix.offshift': '[GROGGY - just woke up]',
+    'wake.prefix.entering': '[PUFFING - just arrived]',
+    'wake.prefix.leaving': "[GROGGY - was heading out the door]",
+    'wake.prefix.bathroom': '[STARTLED - was in the bathroom]',
+    'wake.prefix.lunch': '[INTERRUPTED - was in the middle of eating lunch]',
+    'wake.prefix.snack': '[HALF-CHEWING - was grabbing a snack]',
+    'wake.prefix.stillWaking': '[GROGGY - still waking up]',
+    'wake.prefix.asleep': '[FURIOUS AND SLURRING - was wrenched from deep sleep] Talk in an irritated, sleepy, slurred manner. You are annoyed at being woken up and can barely keep your eyes open.',
+    'wake.prefix.atHome': '[CASUAL - at home off-duty] Respond casually and naturally. You are at home relaxing -- no need to rush or sound groggy.',
 
     // Banter tags
     'banter.tag': 'banter',
@@ -145,18 +170,34 @@ const translations: Record<Language, Record<string, string>> = {
     'ai.action.uninstall': 'Uninstall {modId}',
     'ai.action.search': 'Search: {query}',
     'ai.action.refreshRepo': 'Refresh Repository',
-    'ai.welcome': "Hi! I'm your KSC AI assistant. I can help you find mods, explain dependencies, and recommend mod packs.\n\nConfigure your API key in Settings to start chatting.",
+    'ai.welcome': "Hi! I'm your KerbOffice AI assistant. I can help you find mods, explain dependencies, and recommend mod packs.\n\nConfigure your API key in Settings to start chatting.",
 
     // Banter fallback templates
     'banter.fallback.initiator.0': 'Did you hear about "{context}"? That\'s wild.',
     'banter.fallback.initiator.1': '{context} \u2014 I have *thoughts* about this one.',
     'banter.fallback.initiator.2': '{context}? Honestly...',
     'banter.fallback.initiator.3': 'Oh, you\'re not going to believe what I heard about "{context}".',
+    'banter.fallback.initiator.4': 'Okay so {context} \u2014 hear me out...',
+    'banter.fallback.initiator.5': 'Can we talk about {context}? I need a second opinion.',
+    'banter.fallback.initiator.6': 'I just spent way too long thinking about {context}.',
+    'banter.fallback.initiator.7': 'Random thought: {context}. What do you make of it?',
+    'banter.fallback.initiator.8': 'Don\'t even get me started on {context}.',
+    'banter.fallback.initiator.9': 'So {context} happened and I have QUESTIONS.',
     'banter.fallback.responder.0': 'Oh, definitely! I completely agree.',
     'banter.fallback.responder.1': 'Hmm, I see your point but I\'m not so sure...',
     'banter.fallback.responder.2': 'That\'s exactly what I was thinking.',
     'banter.fallback.responder.3': 'Wait, really? Tell me more.',
     'banter.fallback.responder.4': 'I have a story about this actually.',
+    'banter.fallback.responder.5': 'You know what? That tracks.',
+    'banter.fallback.responder.6': 'I mean, I guess? But also... no?',
+    'banter.fallback.responder.7': 'Okay that\'s actually hilarious.',
+    'banter.fallback.responder.8': 'I\'ve been saying this for ages!',
+    'banter.fallback.responder.9': 'Hold on, let me process that for a second...',
+    'banter.fallback.responder.10': 'Nah, I\'m gonna have to disagree on that one.',
+    'banter.fallback.responder.11': 'Interesting take. I respect it.',
+    'banter.fallback.responder.12': 'This is exactly the kind of conversation I needed right now.',
+    'banter.fallback.responder.13': 'I literally had this exact thought yesterday!',
+    'banter.fallback.responder.14': 'You\'re not wrong, but you\'re not entirely right either.',
 
     // Common
     'common.unknownError': 'Unknown error',
@@ -230,7 +271,7 @@ const translations: Record<Language, Record<string, string>> = {
     'shift.noResponse': 'No response.',
 
     // Room Canvas
-    'room.title': 'KSC  MISSION  CONTROL',
+    'room.title': 'KERBOFFICE  MISSION  CONTROL',
     'room.statusOk': 'ALL SYSTEMS NOMINAL',
     'room.dayShift': 'DAY SHIFT',
     'room.nightShift': 'NIGHT SHIFT',
@@ -276,6 +317,8 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.apiKeysDesc': '\u8FDE\u63A5\u4F60\u81EA\u5DF1\u7684 API \u5BC6\u94A5\u4EE5\u4F7F\u7528\u81EA\u5B9A\u4E49 AI \u63D0\u4F9B\u5546\u3002\u5BC6\u94A5\u4EC5\u5B58\u50A8\u5728\u672C\u5730\u6D4F\u89C8\u5668\u4E2D\u3002',
     'settings.runsLocally': '\u672C\u5730\u8FD0\u884C \u2014 \u65E0\u9700 API \u5BC6\u94A5',
     'settings.keySaved': '\u5BC6\u94A5\u5DF2\u4FDD\u5B58',
+    'settings.noKeyForSelected': '\u8BE5\u63D0\u4F9B\u5546\u672A\u8BBE\u7F6E API \u5BC6\u94A5\u3002\u8BF7\u5728\u4E0A\u65B9\u6DFB\u52A0\uFF0C\u6216\u5207\u6362\u5230 Ollama \u4F7F\u7528\u672C\u5730\u804A\u5929\u3002',
+    'settings.fallbackToOllama': '\u672A\u8BBE\u7F6E API \u5BC6\u94A5\u2014\u5DF2\u5207\u6362\u5230 Ollama\uff08\u672C\u5730\uff09\u4F5C\u4E3A\u5907\u9009\u3002',
     'settings.missionChatter': '\u4EFB\u52A1\u63A7\u5236\u4E2D\u5FC3\u95F2\u804A',
     'settings.missionChatterOn': '\u7A7A\u95F2\u65F6 Kerbal \u4F1A\u81EA\u52A8\u804A\u5929',
     'settings.missionChatterOff': 'Kerbal \u4EC5\u5728\u60A8\u53D1\u9001\u6D88\u606F\u65F6\u56DE\u590D',
@@ -293,7 +336,7 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.repositoryDesc': 'master \u2014 github.com/KSP-CKAN/CKAN-meta',
     'settings.manage': '\u7BA1\u7406',
     'settings.banter': 'Kerbal \u95F2\u804A',
-
+    
     // Mission Control
     'mc.loading': '\u6B63\u5728\u52A0\u8F7D Kerbal \u7075\u9B42...',
     'mc.dayShift': '\u767D\u73ED\u5230\u5C97 (06:00)\u3002Kerbal \u6B63\u5728\u5C31\u4F4D\u3002',
@@ -338,6 +381,29 @@ const translations: Record<Language, Record<string, string>> = {
     'status.onShift': '\u503C\u73ED\u4E2D',
     'status.onBreak': '\u4F11\u606F\u4E2D',
     'status.offShift': '\u672A\u503C\u73ED',
+    'status.position.desk': '\u5728\u5DE5\u4F4D\u4E0A',
+    'status.position.coffee': '\u5728\u5496\u5561\u673A\u65C1',
+    'status.position.break': '\u4F11\u606F\u4E2D',
+    'status.position.offshift': '\u5728\u5BB6',
+    'status.position.entering': '\u521A\u5230\u8FBE',
+    'status.position.leaving': '\u6B63\u8981\u79BB\u5F00',
+    'status.position.bathroom': '\u5728\u6D17\u624B\u95F4',
+    'status.position.lunch': '\u5728\u5403\u5348\u996D',
+    'status.position.snack': '\u5728\u5403\u96F6\u98DF',
+
+    // Wake prefixes (position-aware)
+    'wake.prefix.desk': '[\u7761\u773C\u661F\u5F69 - \u521A\u88AB\u53EB\u9192]',
+    'wake.prefix.coffee': '[\u7F3A\u5496\u5561\u56E0 - \u6B63\u5728\u63A5\u5496\u5561]',
+    'wake.prefix.break': '[\u542B\u7CCA\u4E0D\u6E05 - \u6B63\u5728\u4F11\u606F]',
+    'wake.prefix.offshift': '[\u7761\u773C\u661F\u5F69 - \u521A\u88AB\u53EB\u9192]',
+    'wake.prefix.entering': '[\u6C14\u5598\u541C\u541C - \u521A\u5230]',
+    'wake.prefix.leaving': '[\u7761\u773C\u661F\u5F69 - \u6B63\u8981\u51FA\u95E8]',
+    'wake.prefix.bathroom': '[\u60CA\u614C - \u5728\u6D17\u624B\u95F4]',
+    'wake.prefix.lunch': '[\u88AB\u4E2D\u65AD - \u6B63\u5728\u5403\u5348\u996D]',
+    'wake.prefix.snack': '[\u5634\u91CC\u542B\u7740\u98DF\u7269 - \u5728\u5403\u96F6\u98DF]',
+    'wake.prefix.stillWaking': '[\u8FF7\u7CCA - \u8FD8\u6CA1\u5B8C\u5168\u6E05\u9192]',
+    'wake.prefix.asleep': '[\u6124\u6012\u4E14\u542B\u7CCA - \u88AB\u4ECE\u6DF1\u5EA6\u7761\u7720\u4E2D\u5F3A\u884C\u62C9\u56DE] \u7528\u751F\u6C14\u3001\u56F0\u5026\u3001\u542B\u7CCA\u4E0D\u6E05\u7684\u53E3\u543B\u8BF4\u8BDD\u3002\u4F60\u88AB\u53EB\u9192\u540E\u975E\u5E38\u4E0D\u60C5\u613F\uFF0C\u7728\u7728\u773C\u90FD\u89C9\u5F97\u7D2F\u3002',
+    'wake.prefix.atHome': '[\u968F\u610F - \u5728\u5BB6\u4F11\u606F] \u7528\u968F\u610F\u3001\u81EA\u7136\u7684\u53E3\u543B\u56DE\u7B54\u3002\u4F60\u5728\u5BB6\u653E\u677E\uFF0C\u4E0D\u7528\u6025\u4E5F\u4E0D\u7528\u663E\u5F97\u56F0\u5026\u3002',
 
     // Banter tags
     'banter.tag': '\u95F2\u804A',
@@ -362,18 +428,34 @@ const translations: Record<Language, Record<string, string>> = {
     'ai.action.uninstall': '\u5378\u8F7D {modId}',
     'ai.action.search': '\u641C\u7D22\uFF1A{query}',
     'ai.action.refreshRepo': '\u5237\u65B0\u4ED3\u5E93',
-    'ai.welcome': '\u4F60\u597D\uFF01\u6211\u662F\u4F60\u7684 KSC AI \u52A9\u624B\u3002\u6211\u53EF\u4EE5\u5E2E\u4F60\u5BFB\u627E\u6A21\u7EC4\u3001\u89E3\u91CA\u4F9D\u8D56\u5173\u7CFB\uFF0C\u5E76\u63A8\u8350\u6A21\u7EC4\u7EC4\u5408\u3002\n\n\u914D\u7F6E\u4F60\u7684 API \u5BC6\u94A5\u540E\u5373\u53EF\u5F00\u59CB\u804A\u5929\u3002',
+    'ai.welcome': '\u4F60\u597D\uFF01\u6211\u662F\u4F60\u7684 KerbOffice AI \u52A9\u624B\u3002\u6211\u53EF\u4EE5\u5E2E\u4F60\u5BFB\u627E\u6A21\u7EC4\u3001\u89E3\u91CA\u4F9D\u8D56\u5173\u7CFB\uFF0C\u5E76\u63A8\u8350\u6A21\u7EC4\u7EC4\u5408\u3002\n\n\u914D\u7F6E\u4F60\u7684 API \u5BC6\u94A5\u540E\u5373\u53EF\u5F00\u59CB\u804A\u5929\u3002',
 
     // Banter fallback templates
     'banter.fallback.initiator.0': '\u4F60\u542C\u8BF4"{context}"\u4E86\u5417\uFF1F\u592A\u75AF\u72C2\u4E86\u3002',
     'banter.fallback.initiator.1': '{context} \u2014 \u6211\u5BF9\u6B64*\u6709\u60F3\u6CD5*\u3002',
     'banter.fallback.initiator.2': '{context}\uFF1F\u8BF4\u5B9E\u8BDD\u2026\u2026',
     'banter.fallback.initiator.3': '\u54E6\uFF0C\u4F60\u4E0D\u4F1A\u76F8\u4FE1\u6211\u542C\u5230\u7684\u5173\u4E8E"{context}"\u7684\u4E8B\u3002',
+    'banter.fallback.initiator.4': '\u884C\u5427{context}\u2014\u2014\u4F60\u5148\u542C\u6211\u8BF4\u5B8C\u2026\u2026',
+    'banter.fallback.initiator.5': '\u80FD\u8C08\u8C08{context}\u5417\uFF1F\u6211\u9700\u8981\u7B2C\u4E8C\u4E2A\u610F\u89C1\u3002',
+    'banter.fallback.initiator.6': '\u6211\u521A\u624D\u82B1\u4E86\u592A\u4E45\u65F6\u95F4\u601D\u8003{context}\u4E86\u3002',
+    'banter.fallback.initiator.7': '\u968F\u4FBF\u60F3\u60F3\uFF1A{context}\u3002\u4F60\u600E\u4E48\u770B\uFF1F',
+    'banter.fallback.initiator.8': '\u522B\u8DDF\u6211\u63D0{context}\u3002',
+    'banter.fallback.initiator.9': '{context}\u53D1\u751F\u4E86\uFF0C\u6211\u6709\u5F88\u591A\u95EE\u9898\uFF01',
     'banter.fallback.responder.0': '\u54E6\uFF0C\u5F53\u7136\uFF01\u6211\u5B8C\u5168\u540C\u610F\u3002',
     'banter.fallback.responder.1': '\u55EF\uFF0C\u6211\u7406\u89E3\u4F60\u7684\u89C2\u70B9\uFF0C\u4F46\u6211\u4E0D\u592A\u786E\u5B9A\u2026\u2026',
     'banter.fallback.responder.2': '\u8FD9\u6B63\u662F\u6211\u7684\u60F3\u6CD5\u3002',
     'banter.fallback.responder.3': '\u7B49\u7B49\uFF0C\u771F\u7684\u5417\uFF1F\u5FEB\u544A\u8BC9\u6211\u66F4\u591A\u3002',
     'banter.fallback.responder.4': '\u5176\u5B9E\u6211\u8FD9\u65B9\u9762\u6709\u4E2A\u6545\u4E8B\u3002',
+    'banter.fallback.responder.5': '\u4F60\u77E5\u9053\u5417\uFF1F\u8FD9\u5F88\u5408\u7406\u3002',
+    'banter.fallback.responder.6': '\u6211\u89C9\u5F97\u2026\u2026\u4F46\u4E5F\u4E0D\u5B8C\u5168\u2026\u2026',
+    'banter.fallback.responder.7': '\u54C8\u54C8\u54C8\u8FD9\u4E2A\u771F\u7684\u597D\u7B11\u3002',
+    'banter.fallback.responder.8': '\u6211\u8BF4\u4E86\u8FD9\u4E48\u4E45\u4E86\uFF01',
+    'banter.fallback.responder.9': '\u7B49\u7B49\uFF0C\u8BA9\u6211\u5148\u6D88\u5316\u4E00\u4E0B\u2026\u2026',
+    'banter.fallback.responder.10': '\u4E0D\u884C\uFF0C\u8FD9\u4E2A\u6211\u5F97\u53CD\u9A73\u3002',
+    'banter.fallback.responder.11': '\u6709\u610F\u601D\u7684\u89D2\u5EA6\u3002\u6211\u79C9\u7740\u5C0A\u91CD\u3002',
+    'banter.fallback.responder.12': '\u8FD9\u5C31\u662F\u6211\u73B0\u5728\u6700\u9700\u8981\u7684\u8C08\u8BDD\u3002',
+    'banter.fallback.responder.13': '\u6211\u6628\u5929\u5C31\u662F\u8FD9\u4E48\u60F3\u7684\uFF01',
+    'banter.fallback.responder.14': '\u4F60\u8BF4\u5F97\u4E0D\u5B8C\u5168\u9519\uFF0C\u4F46\u4E5F\u4E0D\u5B8C\u5168\u5BF9\u3002',
 
     // Common
     'common.unknownError': '\u672A\u77E5\u9519\u8BEF',
@@ -447,7 +529,7 @@ const translations: Record<Language, Record<string, string>> = {
     'shift.noResponse': '\u65E0\u54CD\u5E94\u3002',
 
     // Room Canvas
-    'room.title': 'KSC \u4EFB\u52A1\u63A7\u5236\u4E2D\u5FC3',
+    'room.title': 'KerbOffice \u4EFB\u52A1\u63A7\u5236\u4E2D\u5FC3',
     'room.statusOk': '\u6240\u6709\u7CFB\u7EDF\u6B63\u5E38',
     'room.dayShift': '\u767D\u73ED',
     'room.nightShift': '\u591C\u73ED',
@@ -493,6 +575,8 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.apiKeysDesc': '\u72EC\u81EA\u306E API \u30AD\u30FC\u3092\u9023\u7D61\u3057\u3066\u3001\u30AB\u30B9\u30BF\u30E0 AI \u30D7\u30ED\u30D0\u30A4\u30C0\u3092\u4F7F\u7528\u3002\u30AD\u30FC\u306F\u30D6\u30E9\u30A6\u30B6\u306B\u4FDD\u5B58\u3055\u308C\u307E\u3059\u3002',
     'settings.runsLocally': '\u30ED\u30FC\u30AB\u30EB\u5B9F\u884C \u2014 API \u30AD\u30FC\u4E0D\u8981',
     'settings.keySaved': '\u30AD\u30FC\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F',
+    'settings.noKeyForSelected': '\u3053\u306E\u30D7\u30ED\u30D0\u30A4\u30C0\u306B\u306F API \u30AD\u30FC\u304C\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002\u4E0A\u3067\u8FFD\u52A0\u3059\u308B\u304B\u3001Ollama \u306B\u5207\u308A\u66FF\u3048\u3066\u30ED\u30FC\u30AB\u30EB\u3067\u30C1\u30E3\u30C3\u30C8\u3057\u3066\u304F\u3060\u3055\u3044\u3002',
+    'settings.fallbackToOllama': 'API \u30AD\u30FC\u304C\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u2014Ollama\uff08\u30ED\u30FC\u30AB\u30EB\uff09\u306B\u30D5\u30A9\u30FC\u30EB\u30D0\u30C3\u30AF\u3057\u307E\u3057\u305F\u3002',
     'settings.missionChatter': '\u30DF\u30C3\u30B7\u30E7\u30F3\u30B3\u30F3\u30C8\u30ED\u30FC\u30EB\u306E\u4F11\u61A9\u8A71',
     'settings.missionChatterOn': '\u975E\u64CD\u4F5C\u6642\u306B Kerbal \u304C\u4E92\u3044\u306B\u30C1\u30E3\u30C3\u30C8\u3059\u308B',
     'settings.missionChatterOff': '\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u9001\u3063\u305F\u6642\u306E\u307F Kerbal \u304C\u53CD\u5FDC\u3059\u308B',
@@ -510,7 +594,7 @@ const translations: Record<Language, Record<string, string>> = {
     'settings.repositoryDesc': 'master \u2014 github.com/KSP-CKAN/CKAN-meta',
     'settings.manage': '\u7BA1\u7406',
     'settings.banter': 'Kerbal \u96D1\u8AC7',
-
+    
     // Mission Control
     'mc.loading': 'Kerbal \u30BD\u30A6\u30EB\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D...',
     'mc.dayShift': '\u663C\u52E4\u304C\u4E57\u308A\u8FBC\u3093\u3067\u304D\u307E\u3057\u305F (06:00)\u3002Kerbal \u304C\u5F53\u756A\u306B\u3064\u304D\u307E\u3059\u3002',
@@ -555,6 +639,29 @@ const translations: Record<Language, Record<string, string>> = {
     'status.onShift': '\u52E4\u52D9\u4E2D',
     'status.onBreak': '\u4F11\u61A9\u4E2D',
     'status.offShift': '\u975E\u52E4\u5F53',
+    'status.position.desk': '\u30C7\u30B9\u30AF\u306B\u3044\u308B',
+    'status.position.coffee': '\u30B3\u30FC\u30D2\u30FC\u3092\u5165\u308C\u3066\u3044\u308B',
+    'status.position.break': '\u4F11\u61A9\u4E2D',
+    'status.position.offshift': '\u81EA\u5B85\u306B\u3044\u308B',
+    'status.position.entering': '\u5230\u7740\u3057\u305F\u3070\u304B\u308A',
+    'status.position.leaving': '\u51FA\u304B\u3051\u3088\u3046\u3068\u3057\u3066\u3044\u308B',
+    'status.position.bathroom': '\u30C8\u30A4\u30EC\u306B\u3044\u308B',
+    'status.position.lunch': '\u663C\u98DF\u4E2D',
+    'status.position.snack': '\u304A\u3084\u3064\u3092\u98DF\u3079\u3066\u3044\u308B',
+
+    // Wake prefixes (position-aware)
+    'wake.prefix.desk': '[\u7720\u305D\u3046 - \u8D77\u3053\u3055\u308C\u305F\u3070\u304B\u308A]',
+    'wake.prefix.coffee': '[\u30AB\u30D5\u30A7\u30A4\u30F3\u4E0D\u8DB3 - \u30B3\u30FC\u30D2\u30FC\u3092\u5165\u308C\u3066\u3044\u305F]',
+    'wake.prefix.break': '[\u304F\u3050\u3082\u3063\u305F\u58F0 - \u4F11\u61A9\u4E2D\u3060\u3063\u305F]',
+    'wake.prefix.offshift': '[\u7720\u305D\u3046 - \u8D77\u3053\u3055\u308C\u305F\u3070\u304B\u308A]',
+    'wake.prefix.entering': '[\u606F\u3092\u5207\u3089\u3057\u3066 - \u5230\u7740\u3057\u305F\u3070\u304B\u308A]',
+    'wake.prefix.leaving': '[\u7720\u305D\u3046 - \u51FA\u304B\u3051\u3088\u3046\u3068\u3057\u3066\u3044\u305F]',
+    'wake.prefix.bathroom': '[\u614C\u3066\u3066 - \u30C8\u30A4\u30EC\u306B\u3044\u305F]',
+    'wake.prefix.lunch': '[\u4E2D\u65AD\u3057\u3066 - \u663C\u98DF\u4E2D\u3060\u3063\u305F]',
+    'wake.prefix.snack': '[\u98DF\u3079\u304B\u3051 - \u304A\u3084\u3064\u3092\u98DF\u3079\u3066\u3044\u305F]',
+    'wake.prefix.stillWaking': '[\u307E\u3060\u7720\u3044 - \u5B8C\u5168\u306B\u76EE\u899A\u3081\u3066\u3044\u306A\u3044]',
+    'wake.prefix.asleep': '[\u52C3\u7136\u3068\u3057\u3066\u3044\u308B\u30FB\u60C5\u3071\u306A\u3044 - \u6DF1\u3044\u7720\u308A\u304B\u3089\u5F37\u5236\u899A\u9192\u3055\u305B\u3089\u308C\u305F] \u30A4\u30E9\u30A4\u30E9\u3001\u7720\u3044\u3001\u60C5\u3051\u306E\u3042\u308B\u53E3\u8ABF\u3067\u8A71\u3059\u3002\u899A\u307E\u3055\u305B\u3089\u308C\u3066\u30A4\u30E9\u30A4\u30E9\u3057\u3066\u304A\u308A\u3001\u3081\u304C\u304C\u30DB\u30F3\u30C8\u306B\u958B\u304B\u306A\u3044\u3002',
+    'wake.prefix.atHome': '[\u30AB\u30B8\u30E5\u30A2\u30EB - \u81EA\u5B85\u3067\u975E\u52E4\u5F53] \u30AB\u30B8\u30E5\u30A2\u30EB\u3067\u81EA\u7136\u306B\u5FDC\u7B54\u3059\u308B\u3002\u81EA\u5B85\u3067\u3086\u3063\u304F\u308A\u3057\u3066\u3044\u308B\u306E\u3067\u3001\u6025\u3044\u3060\u308A\u7720\u305D\u3046\u306A\u59FF\u3092\u898B\u305B\u308B\u5FC5\u8981\u306F\u306A\u3044\u3002',
 
     // Banter tags
     'banter.tag': '\u4F11\u61A9\u8A71',
@@ -579,18 +686,34 @@ const translations: Record<Language, Record<string, string>> = {
     'ai.action.uninstall': '{modId} \u3092\u30A2\u30F3\u30A4\u30F3\u30B9\u30C8\u30FC\u30EB',
     'ai.action.search': '\u691C\u7D22: {query}',
     'ai.action.refreshRepo': '\u30EA\u30DD\u30B8\u30C8\u30EA\u3092\u66F4\u65B0',
-    'ai.welcome': '\u3053\u3093\u306B\u3061\u306F\u3001KSC AI \u30A2\u30B7\u30B9\u30BF\u30F3\u30C8\u3067\u3059\u3002\u30E2\u30C3\u30C9\u306E\u691C\u7D22\u3001\u4F9D\u5B58\u95A2\u4FC2\u306E\u8AAC\u660E\u3001\u304A\u3059\u3059\u3081\u30E2\u30C3\u30C9\u306E\u63D0\u6848\u304C\u3067\u304D\u307E\u3059\u3002\n\n\u8A2D\u5B9A\u3067 API \u30AD\u30FC\u3092\u8A2D\u5B9A\u3059\u308B\u3068\u3001\u30C1\u30E3\u30C3\u30C8\u304C\u59CB\u3081\u3089\u308C\u307E\u3059\u3002',
+    'ai.welcome': '\u3053\u3093\u306B\u3061\u306F\u3001KerbOffice AI \u30A2\u30B7\u30B9\u30BF\u30F3\u30C8\u3067\u3059\u3002\u30E2\u30C3\u30C9\u306E\u691C\u7D22\u3001\u4F9D\u5B58\u95A2\u4FC2\u306E\u8AAC\u660E\u3001\u304A\u3059\u3059\u3081\u30E2\u30C3\u30C9\u306E\u63D0\u6848\u304C\u3067\u304D\u307E\u3059\u3002\n\n\u8A2D\u5B9A\u3067 API \u30AD\u30FC\u3092\u8A2D\u5B9A\u3059\u308B\u3068\u3001\u30C1\u30E3\u30C3\u30C8\u304C\u59CB\u3081\u3089\u308C\u307E\u3059\u3002',
 
     // Banter fallback templates
     'banter.fallback.initiator.0': '\u300C{context}\u300D\u306B\u3064\u3044\u3066\u805E\u3044\u305F\uFF1F\u3059\u3054\u3044\u3088\u306D\u3002',
     'banter.fallback.initiator.1': '{context} \u2014 \u3053\u308C\u306B\u306F*\u610F\u898B*\u304C\u3042\u308B\u3093\u3060\u3051\u3069\u306A\u3002',
     'banter.fallback.initiator.2': '{context}\uFF1F\u307E\u3042\u3001\u30CD\u2026\u2026',
     'banter.fallback.initiator.3': '\u3044\u3084\u3001\u300C{context}\u300D\u306B\u3064\u3044\u3066\u805E\u3044\u305F\u3093\u3060\u3051\u3069\u3001\u7D20\u6674\u3089\u3057\u3044\u3088\u3002',
+    'banter.fallback.initiator.4': '\u307E\u3042{context}\u306A\u3093\u3060\u3051\u3069\u2026\u2026\u8074\u3044\u3066\u3088\uFF01',
+    'banter.fallback.initiator.5': '{context}\u306B\u3064\u3044\u3066\u8A71\u3057\u3066\u3044\u3044\uFF1F\u7B2C\u4E8C\u306E\u610F\u898B\u304C\u307B\u3057\u3044\u3093\u3060\u3002',
+    'banter.fallback.initiator.6': '{context}\u306B\u3064\u3044\u3066\u8003\u3048\u3059\u304E\u305F\u3088\u3002',
+    'banter.fallback.initiator.7': '\u601D\u3044\u3064\u3044\u305F\u3093\u3060\u3051\u3069\u3001{context}\u3063\u3066\u3069\u3046\u601D\u3046\uFF1F',
+    'banter.fallback.initiator.8': '{context}\u306F\u3082\u3046\u3044\u3044\u3084\u3002',
+    'banter.fallback.initiator.9': '{context}\u304C\u3042\u3063\u3066\u3055\u3001\u8CEA\u554F\u304C\u3044\u3063\u3071\u3044\u3042\u308B\u3093\u3060\u3051\u3069\uFF01',
     'banter.fallback.responder.0': '\u3042\u3001\u305D\u308C\u306F\u5F7B\u5E95\u540C\u610F\uFF01',
     'banter.fallback.responder.1': '\u3046\u3093\u3001\u305D\u306E\u610F\u898B\u3082\u308F\u304B\u308B\u3051\u3069\u3001\u306A\u3093\u3060\u304B\u306A\u3041\u2026\u2026',
     'banter.fallback.responder.2': '\u305D\u3063\u304F\u308A\u3001\u308F\u305F\u3057\u3082\u305D\u3046\u601D\u3063\u3066\u305F\u3002',
     'banter.fallback.responder.3': '\u3048\u3001\u307E\u3058\u3067\uFF1F\u3082\u3063\u3068\u805E\u304B\u305B\u3066\u3002',
     'banter.fallback.responder.4': '\u3053\u308C\u306B\u95A2\u3057\u3066\u306F\u3001\u30A8\u30D4\u30BD\u30FC\u30C9\u304C\u3042\u308B\u3093\u3060\u3088\u306A\u3002',
+    'banter.fallback.responder.5': '\u3042\u306E\u306D\u3001\u305D\u308C\u306F\u3042\u308B\u304B\u3082\u306D\u3002',
+    'banter.fallback.responder.6': '\u307E\u3042\u3001\u305D\u3046\u304B\u3082\u306D\u3002\u3067\u3082\u3001\u3061\u304C\u3046\u3068\u601D\u3046\u306A\u3002',
+    'banter.fallback.responder.7': '\u305D\u308C\u306F\u7B11\u3046\u3002',
+    'banter.fallback.responder.8': '\u305A\u3063\u3068\u3053\u3046\u8A00\u3063\u3066\u3044\u305F\u3093\u3060\u3088\u306D\uFF01',
+    'banter.fallback.responder.9': '\u5F85\u3063\u3066\u3001\u307E\u3060\u6574\u7406\u3067\u304D\u3066\u306A\u3044\u2026\u2026',
+    'banter.fallback.responder.10': '\u3044\u3084\u3001\u305D\u308C\u306F\u8D64\u306E\u53CD\u8AD6\u304C\u3042\u308B\u306A\u3002',
+    'banter.fallback.responder.11': '\u8208\u5473\u6DF1\u3044\u89B3\u70B9\u3060\u306D\u3002\u5C0A\u656C\u3059\u308B\u3088\u3002',
+    'banter.fallback.responder.12': '\u307E\u3055\u306B\u4ECA\u5FC5\u8981\u3060\u3063\u305F\u8A71\u984C\u3002',
+    'banter.fallback.responder.13': '\u601D\u3044\u3064\u304B\u3055\u308C\u305F\u3093\u3060\u3051\u3069\u3001\u305D\u3063\u304F\u308A\u540C\u3058\u3053\u3068\u8003\u3048\u3066\u305F\u3088\uFF01',
+    'banter.fallback.responder.14': '\u9593\u9055\u3063\u3066\u306F\u306A\u3044\u3051\u3069\u3001\u6B63\u3057\u304F\u3082\u306A\u3044\u306D\u3002',
 
     // Common
     'common.unknownError': '\u4E0D\u660E\u306A\u30A8\u30E9\u30FC',
@@ -664,7 +787,7 @@ const translations: Record<Language, Record<string, string>> = {
     'shift.noResponse': '\u53CD\u5FDC\u304C\u3042\u308A\u307E\u305B\u3093\u3002',
 
     // Room Canvas
-    'room.title': 'KSC  \u30DF\u30C3\u30B7\u30E7\u30F3  \u30B3\u30F3\u30C8\u30ED\u30FC\u30EB',
+    'room.title': 'KerbOffice  \u30DF\u30C3\u30B7\u30E7\u30F3  \u30B3\u30F3\u30C8\u30ED\u30FC\u30EB',
     'room.statusOk': '\u5168\u30B7\u30B9\u30C6\u30E0\u9806\u8ABF\u3067\u3059',
     'room.dayShift': '\u663C\u52E4',
     'room.nightShift': '\u591C\u52E4',

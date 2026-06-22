@@ -16,6 +16,7 @@ import { moodSystem } from './MoodSystem';
 import { storyEngine } from './StoryEngine';
 import { growthSystem } from './GrowthSystem';
 import { buildToolsPrompt, parseToolCalls, executeToolCall, stripToolCalls } from './AgentSkills';
+import { UserProfile } from './UserProfile';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,7 +50,7 @@ const TRIGGERS: ProactiveTrigger[] = [
     condition: (ctx) => ctx.windowFocused && ctx.focusAwayDuration > 120_000,
     selectKerbal: (k) => k[Math.floor(Math.random() * k.length)],
     buildPrompt: (ctx, _kerbal) =>
-      `[PROACTIVE: user just returned after being away for ${Math.round(ctx.focusAwayDuration / 60_000)} min. Greet them casually, ask if everything's OK, or joke about what you were discussing while they were gone. Be warm and natural — no formal greetings.]`,
+      `[PROACTIVE: user just returned after being away for ${Math.round(ctx.focusAwayDuration / 60_000)} min. Greet them casually, ask if everything's OK, or joke about what you were discussing while they were gone. Be warm and natural — no formal greetings. 1-2 sentences.]`,
     cooldownMs: 300_000,
   },
   {
@@ -74,7 +75,7 @@ const TRIGGERS: ProactiveTrigger[] = [
       return wernher || k[Math.floor(Math.random() * k.length)];
     },
     buildPrompt: (ctx, _kerbal) =>
-      `[PROACTIVE: The user has been on the "${ctx.currentPage}" page for ${Math.round(ctx.currentPageDuration / 60_000)} minutes. They might be stuck or deeply researching. Offer relevant help. Reference the page they're on naturally.]`,
+      `[PROACTIVE: The user has been on the "${ctx.currentPage}" page for ${Math.round(ctx.currentPageDuration / 60_000)} minutes. They might be stuck or deeply researching. Offer relevant help. Reference the page they're on naturally. 1-2 sentences.]`,
     cooldownMs: 600_000,
   },
   {
@@ -103,7 +104,7 @@ const TRIGGERS: ProactiveTrigger[] = [
       return val || k[0];
     },
     buildPrompt: (ctx, kerbal) =>
-      `[PROACTIVE: It's morning (${String(ctx.systemTime.hour).padStart(2, '0')}:${String(ctx.systemTime.minute).padStart(2, '0')}). Greet the user warmly as ${kerbal.name}. Mention the time. Ask what the plan is for today. Keep it motivational.]`,
+      `[PROACTIVE: It's morning (${String(ctx.systemTime.hour).padStart(2, '0')}:${String(ctx.systemTime.minute).padStart(2, '0')}). Greet the user warmly as ${kerbal.name}. Mention the time. Ask what the plan is for today. Keep it motivational. 1-2 sentences.]`,
     cooldownMs: 3_600_000, // once per session essentially
   },
   {
@@ -202,8 +203,11 @@ class ProactiveAgent {
           const params = statsToApiParams(soul);
           const toolsPrompt = buildToolsPrompt(soul.role);
 
+          const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
+          const brevityRule = `KEEP YOUR RESPONSE SHORT — one or two sentences maximum. Be concise like a quick chat message. No long paragraphs, no rambling.`;
+          const userProfileCtx = UserProfile.buildContext();
           const messages = [
-            { role: 'system' as const, content: soul.rawMarkdown + toolsPrompt },
+            { role: 'system' as const, content: [soul.rawMarkdown, userProfileCtx, narrativeRule, brevityRule, toolsPrompt].filter(Boolean).join('\n\n') },
             { role: 'user' as const, content: promptText },
           ];
 

@@ -10,6 +10,7 @@
  */
 
 import type { ShiftType } from './TimeSystem';
+import { DEFAULT_DAY_SHIFT, DEFAULT_NIGHT_SHIFT } from './ShiftDefaults';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,18 +40,8 @@ export interface ShiftAssignment {
 }
 
 // ---------------------------------------------------------------------------
-// Defaults
+// Defaults (imported from ShiftDefaults.ts — single source of truth)
 // ---------------------------------------------------------------------------
-
-const DEFAULT_DAY_SHIFT: string[] = ['Gene', 'Valentina', 'Bill', 'Wernher', 'Walt'];
-const DEFAULT_NIGHT_SHIFT: string[] = ['Jebediah', 'Bob', 'Linus', 'Mortimer'];
-
-function buildDefaultAssignments(): ShiftAssignment[] {
-  return [
-    ...DEFAULT_DAY_SHIFT.map((name): ShiftAssignment => ({ kerbalName: name, shift: 'day' })),
-    ...DEFAULT_NIGHT_SHIFT.map((name): ShiftAssignment => ({ kerbalName: name, shift: 'night' })),
-  ];
-}
 
 const ALL_KERBAL_NAMES = [
   'Gene',
@@ -95,7 +86,10 @@ function loadShiftAssignments(): ShiftAssignment[] {
   } catch {
     // Corrupted data — fall back to defaults
   }
-  return buildDefaultAssignments();
+  return [
+    ...DEFAULT_DAY_SHIFT.map((name): ShiftAssignment => ({ kerbalName: name, shift: 'day' })),
+    ...DEFAULT_NIGHT_SHIFT.map((name): ShiftAssignment => ({ kerbalName: name, shift: 'night' })),
+  ];
 }
 
 function notify(): void {
@@ -214,7 +208,7 @@ export const kerbalStore = {
   goOnBreak(name: string, position: KerbalState['position'], durationMs: number): void {
     kerbals = kerbals.map((k) =>
       k.name === name
-        ? { ...k, position, returnFromBreakAt: Date.now() + durationMs }
+        ? { ...k, present: false, position, returnFromBreakAt: Date.now() + durationMs }
         : k,
     );
     notify();
@@ -224,7 +218,7 @@ export const kerbalStore = {
   returnFromBreak(name: string): void {
     kerbals = kerbals.map((k) =>
       k.name === name
-        ? { ...k, position: 'desk' as const, returnFromBreakAt: null }
+        ? { ...k, present: true, position: 'desk' as const, returnFromBreakAt: null }
         : k,
     );
     notify();

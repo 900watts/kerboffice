@@ -69,6 +69,15 @@ export default function MissionControl() {
     });
   }, []);
 
+  /** Called by SmartphoneModal when a kerbal replies to a phone DM. */
+  const handleNewPhoneReply = useCallback((kerbalName: string) => {
+    setUnreadPhoneCount((c) => c + 1);
+    setPerContactUnread((prev) => ({
+      ...prev,
+      [kerbalName]: (prev[kerbalName] || 0) + 1,
+    }));
+  }, []);
+
   // -----------------------------------------------------------------------
   // Mount / lifecycle
   // -----------------------------------------------------------------------
@@ -100,13 +109,8 @@ export default function MissionControl() {
         preview: msg.content.slice(0, 80),
         timestamp: msg.timestamp,
       });
-      if (!smartphoneOpenRef.current) {
-        setUnreadPhoneCount((c) => c + 1);
-        setPerContactUnread((prev) => ({
-          ...prev,
-          [msg.kerbalName]: (prev[msg.kerbalName] || 0) + 1,
-        }));
-      }
+      // NOT incrementing unread counts here anymore — only phone DM replies
+      // trigger notification bubbles (handled via SmartphoneModal's onNewReply).
     });
 
     const timeUnsub = timeSystem.subscribe(() => {
@@ -223,6 +227,7 @@ export default function MissionControl() {
         onClose={() => setSmartphoneOpen(false)}
         perContactUnread={perContactUnread}
         onOpenThread={handleOpenThread}
+        onNewReply={handleNewPhoneReply}
       />
 
       <NotificationBanner

@@ -6,7 +6,7 @@ import { SoulLoader } from '../SoulLoader';
 import type { KerbalSoul } from '../SoulLoader';
 import { statsToApiParams } from '../SoulLoader';
 import { growthSystem } from '../GrowthSystem';
-import { chatViaProvider, EMPTY_RESPONSE } from '../../services/ai';
+import { chatViaProvider, EMPTY_RESPONSE, setApiKey, getCustomApiKey, AI_PROVIDERS } from '../../services/ai';
 import { KerbalMemory } from '../KerbalMemory';
 import { moodSystem } from '../MoodSystem';
 import { storyEngine } from '../StoryEngine';
@@ -14,6 +14,8 @@ import { buildToolsPrompt, parseToolCalls, executeToolCall, stripToolCalls } fro
 import { t, getLanguage, setLanguage } from '../../services/i18n';
 import type { Language } from '../../services/i18n';
 import { idleBanter } from './IdleBanter';
+import { UserProfile } from '../UserProfile';
+import { timeSystem } from '../TimeSystem';
 import ApiPlugins from '../../services/ApiPlugins';
 import {
   getConfiguredProviders,
@@ -88,19 +90,30 @@ function statusColor(status: DerivedStatus): string {
   }
 }
 
-function statusText(status: DerivedStatus): string {
+function statusText(kerbal: KerbalState, status: DerivedStatus): string {
+  if (status === 'off-shift') {
+    return t(('status.position.' + kerbal.position) as any);
+  }
   switch (status) {
     case 'on-shift':
       return t('status.onShift');
     case 'on-break':
       return t('status.onBreak');
-    case 'off-shift':
-      return t('status.offShift');
   }
 }
 
 function isOffShift(status: DerivedStatus): boolean {
   return status === 'off-shift';
+}
+
+function getWakePrefix(kerbal: KerbalState): string {
+  var key = 'wake.prefix.' + kerbal.position;
+  return t(key as any);
+}
+
+/** Returns true when the in-game clock is in nighttime hours (18:00–06:00). */
+function isNighttime(): boolean {
+  return timeSystem.getTime().shiftType === 'night';
 }
 
 // ---------------------------------------------------------------------------
@@ -208,9 +221,10 @@ export interface SmartphoneModalProps {
   onClose: () => void;
   perContactUnread?: Record<string, number>;
   onOpenThread?: (kerbalName: string) => void;
+  onNewReply?: (kerbalName: string) => void;
 }
 
-const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perContactUnread = {}, onOpenThread }) => {
+const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perContactUnread = {}, onOpenThread, onNewReply }) => {
   const [visible, setVisible] = useState(false);
   const [view, setView] = useState<ViewMode>('home');
   const [activeKerbal, setActiveKerbal] = useState<KerbalState | null>(null);
@@ -220,6 +234,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
   const [isGenerating, setIsGenerating] = useState(false);
   const [summonError, setSummonError] = useState<string | null>(null);
   const [settingsTick, setSettingsTick] = useState(0);
+  const [keySavedFeedback, setKeySavedFeedback] = useState<string | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -228,6 +243,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
   const activeKerbalRef = useRef<KerbalState | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
+  const wokenMapRef = useRef<Set<string>>(new Set());
 
   // Sync activeKerbalRef whenever activeKerbal changes
   useEffect(() => {
@@ -281,6 +297,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
       setIsSummoning(false);
       setIsGenerating(false);
       setSummonError(null);
+      wokenMapRef.current = new Set();
     }
   }, [isOpen, visible]);
 
@@ -303,11 +320,16 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // Resume idle banter when phone closes
+    idleBanter.resume();
     setVisible(false);
   }, []);
 
   const handleExitComplete = useCallback(() => {
-    if (!visible) onClose();
+    if (!visible) {
+      idleBanter.resume();
+      onClose();
+    }
   }, [visible, onClose]);
 
   const sendMessage = useCallback(async () => {
@@ -338,76 +360,298 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
 
     const status = deriveStatus(currentKerbal);
 
-    // ---- Off-shift: wake-up delay + groggy AI response ----
+    // ---- Off-shift: three-way status-based behavior ----
     if (isOffShift(status)) {
-      setIsSummoning(true);
+      // Check for on-break positions first — these are short breaks (lunch, bathroom, etc.)
+      // where the kerbal is still on-premises. Instant response, no groggy, no fail roll.
+      const breakPositions = ['lunch', 'bathroom', 'snack', 'break'];
+      const isOnBreakPos = breakPositions.includes(currentKerbal.position);
 
-      // 30% chance of no response (deep asleep) — show immediately, no artificial delay
-      if (Math.random() < 0.3) {
-        setSummonError(t('mc.noResponse'));
-        setIsSummoning(false);
-        abortControllerRef.current = null;
-        return;
-      }
+      if (isOnBreakPos) {
+        try {
+          const soul: KerbalSoul = await getSoulCached(currentKerbal.name);
+          const params = statsToApiParams(soul);
 
-      // Simulate wake-up time: 5-10 seconds
-      const wakeDelay = 5000 + Math.random() * 5000;
-      await new Promise((resolve) => setTimeout(resolve, wakeDelay));
+          const memoryCtx = KerbalMemory.buildMemoryContext(currentKerbal.name);
+          const moodCtx = moodSystem.buildMoodPrompt(currentKerbal.name);
+          const storyCtx = storyEngine.buildStoryPrompt(currentKerbal.name);
+          const toolsCtx = buildToolsPrompt(soul.role);
+          const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
 
-      // Check if aborted or unmounted after the delay
-      if (controller.signal.aborted || !mountedRef.current) {
-        abortControllerRef.current = null;
-        return;
-      }
+          const prefix = getWakePrefix(currentKerbal);
 
-      try {
-        const soul: KerbalSoul = await getSoulCached(currentKerbal.name);
-        const params = statsToApiParams(soul);
+          const messages = [
+            {
+              role: 'system' as const,
+              content: `${prefix}\n\n${soul.rawMarkdown}\n\n${moodCtx}\n\n${memoryCtx}\n\n${storyCtx}\n\n${toolsCtx}\n\n${narrativeRule}`,
+            },
+            { role: 'user' as const, content: trimmed },
+          ];
 
-        const memoryCtx = KerbalMemory.buildMemoryContext(currentKerbal.name);
+          const result = await chatViaProvider(messages, {
+            temperature: params.temperature,
+            topP: params.topP,
+            noSystemPrompt: true,
+            signal: controller.signal,
+          });
 
-        const messages = [
-          {
-            role: 'system' as const,
-            content: `[GROGGY - just woke up]\n\n${soul.rawMarkdown}${memoryCtx}`,
-          },
-          { role: 'user' as const, content: trimmed },
-        ];
+          if (controller.signal.aborted || !mountedRef.current) return;
 
-        const result = await chatViaProvider(messages, {
-          temperature: params.temperature,
-          topP: params.topP,
-          noSystemPrompt: true,
-          signal: controller.signal,
-        });
+          const kerbalMsg: ThreadMessage = {
+            id: `msg-${Date.now()}-${currentKerbal.name}`,
+            sender: currentKerbal.name,
+            content: (result.reply && result.reply !== EMPTY_RESPONSE) ? result.reply : `*${currentKerbal.name} ${t('mc.aiUnavailable')}*`,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, kerbalMsg]);
+          onNewReply?.(currentKerbal.name);
 
-        if (controller.signal.aborted || !mountedRef.current) return;
-
-        const kerbalMsg: ThreadMessage = {
-          id: `msg-${Date.now()}-${currentKerbal.name}`,
-          sender: currentKerbal.name,
-          content: (result.reply && result.reply !== EMPTY_RESPONSE) ? result.reply : `*${currentKerbal.name} ${t('mc.mumbles')}*`,
-          timestamp: Date.now(),
-          isGroggy: true,
-        };
-        setMessages((prev) => [...prev, kerbalMsg]);
-
-        KerbalMemory.addSummary(currentKerbal.name, result.reply);
-        KerbalMemory.extractAndStore(currentKerbal.name, trimmed);
-        growthSystem.tick(currentKerbal.name, 'successful_chat');
-      } catch (err: unknown) {
-        if (!mountedRef.current) return;
-        growthSystem.tick(currentKerbal.name, 'error_response');
-        setSummonError(
-          err instanceof Error ? err.message : 'No response.',
-        );
-      } finally {
-        if (mountedRef.current) setIsSummoning(false);
-        if (abortControllerRef.current === controller) {
-          abortControllerRef.current = null;
+          KerbalMemory.addSummary(currentKerbal.name, result.reply);
+          KerbalMemory.extractAndStore(currentKerbal.name, trimmed);
+          growthSystem.tick(currentKerbal.name, 'successful_chat');
+        } catch (err: unknown) {
+          if (!mountedRef.current) return;
+          growthSystem.tick(currentKerbal.name, 'error_response');
+          setSummonError(
+            err instanceof Error ? err.message : 'No response.',
+          );
+        } finally {
+          if (mountedRef.current) setIsSummoning(false);
+          if (abortControllerRef.current === controller) {
+            abortControllerRef.current = null;
+          }
         }
+        return;
       }
-      return;
+
+      // Determine which off-shift variant we're in
+      const isAsleep = currentKerbal.position === 'offshift' && isNighttime();
+      const isAtHome = currentKerbal.position === 'offshift' && !isNighttime();
+      const isOtherOffShift = !isAsleep && !isAtHome;
+
+      // --- Branch A: Asleep (offshift + nighttime) — full delay + irritated/slurred ---
+      if (isAsleep) {
+        setIsSummoning(true);
+
+        const isWoken = wokenMapRef.current.has(currentKerbal.name);
+
+        if (!isWoken) {
+          // 30% chance of no response (deep asleep)
+          if (Math.random() < 0.3) {
+            setSummonError(t('mc.noResponse'));
+            setIsSummoning(false);
+            abortControllerRef.current = null;
+            return;
+          }
+
+          // Simulate wake-up time: 5-10 seconds
+          const wakeDelay = 5000 + Math.random() * 5000;
+          await new Promise((resolve) => setTimeout(resolve, wakeDelay));
+
+          if (controller.signal.aborted || !mountedRef.current) {
+            abortControllerRef.current = null;
+            return;
+          }
+        }
+
+        try {
+          const soul: KerbalSoul = await getSoulCached(currentKerbal.name);
+          const params = statsToApiParams(soul);
+
+          const memoryCtx = KerbalMemory.buildMemoryContext(currentKerbal.name);
+          const moodCtx = moodSystem.buildMoodPrompt(currentKerbal.name);
+          const storyCtx = storyEngine.buildStoryPrompt(currentKerbal.name);
+          const toolsCtx = buildToolsPrompt(soul.role);
+          const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
+
+          const prefix = isWoken ? t('wake.prefix.stillWaking') : t('wake.prefix.asleep');
+
+          const messages = [
+            {
+              role: 'system' as const,
+              content: `${prefix}\n\n${soul.rawMarkdown}\n\n${moodCtx}\n\n${memoryCtx}\n\n${storyCtx}\n\n${toolsCtx}\n\n${narrativeRule}`,
+            },
+            { role: 'user' as const, content: trimmed },
+          ];
+
+          const result = await chatViaProvider(messages, {
+            temperature: params.temperature,
+            topP: params.topP,
+            noSystemPrompt: true,
+            signal: controller.signal,
+          });
+
+          if (controller.signal.aborted || !mountedRef.current) return;
+
+          wokenMapRef.current.add(currentKerbal.name);
+
+          const kerbalMsg: ThreadMessage = {
+            id: `msg-${Date.now()}-${currentKerbal.name}`,
+            sender: currentKerbal.name,
+            content: (result.reply && result.reply !== EMPTY_RESPONSE) ? result.reply : `*${currentKerbal.name} ${t('mc.mumbles')}*`,
+            timestamp: Date.now(),
+            isGroggy: true,
+          };
+          setMessages((prev) => [...prev, kerbalMsg]);
+          onNewReply?.(currentKerbal.name);
+
+          KerbalMemory.addSummary(currentKerbal.name, result.reply);
+          KerbalMemory.extractAndStore(currentKerbal.name, trimmed);
+          growthSystem.tick(currentKerbal.name, 'successful_chat');
+        } catch (err: unknown) {
+          if (!mountedRef.current) return;
+          growthSystem.tick(currentKerbal.name, 'error_response');
+          setSummonError(
+            err instanceof Error ? err.message : 'No response.',
+          );
+        } finally {
+          if (mountedRef.current) setIsSummoning(false);
+          if (abortControllerRef.current === controller) {
+            abortControllerRef.current = null;
+          }
+        }
+        return;
+      }
+
+      // --- Branch B: At home (offshift + daytime) — instant response, no groggy ---
+      if (isAtHome) {
+        try {
+          const soul: KerbalSoul = await getSoulCached(currentKerbal.name);
+          const params = statsToApiParams(soul);
+
+          const memoryCtx = KerbalMemory.buildMemoryContext(currentKerbal.name);
+          const moodCtx = moodSystem.buildMoodPrompt(currentKerbal.name);
+          const storyCtx = storyEngine.buildStoryPrompt(currentKerbal.name);
+          const toolsCtx = buildToolsPrompt(soul.role);
+          const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
+
+          const prefix = t('wake.prefix.atHome');
+
+          const messages = [
+            {
+              role: 'system' as const,
+              content: `${prefix}\n\n${soul.rawMarkdown}\n\n${moodCtx}\n\n${memoryCtx}\n\n${storyCtx}\n\n${toolsCtx}\n\n${narrativeRule}`,
+            },
+            { role: 'user' as const, content: trimmed },
+          ];
+
+          const result = await chatViaProvider(messages, {
+            temperature: params.temperature,
+            topP: params.topP,
+            noSystemPrompt: true,
+            signal: controller.signal,
+          });
+
+          if (controller.signal.aborted || !mountedRef.current) return;
+
+          const kerbalMsg: ThreadMessage = {
+            id: `msg-${Date.now()}-${currentKerbal.name}`,
+            sender: currentKerbal.name,
+            content: (result.reply && result.reply !== EMPTY_RESPONSE) ? result.reply : `*${currentKerbal.name} ${t('mc.aiUnavailable')}*`,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, kerbalMsg]);
+          onNewReply?.(currentKerbal.name);
+
+          KerbalMemory.addSummary(currentKerbal.name, result.reply);
+          KerbalMemory.extractAndStore(currentKerbal.name, trimmed);
+          growthSystem.tick(currentKerbal.name, 'successful_chat');
+        } catch (err: unknown) {
+          if (!mountedRef.current) return;
+          growthSystem.tick(currentKerbal.name, 'error_response');
+          setSummonError(
+            err instanceof Error ? err.message : 'No response.',
+          );
+        } finally {
+          if (mountedRef.current) setIsSummoning(false);
+          if (abortControllerRef.current === controller) {
+            abortControllerRef.current = null;
+          }
+        }
+        return;
+      }
+
+      // --- Branch C: Other off-shift positions (entering, leaving, etc.) — original behavior ---
+      if (isOtherOffShift) {
+        setIsSummoning(true);
+
+        const isWoken = wokenMapRef.current.has(currentKerbal.name);
+
+        if (!isWoken) {
+          if (Math.random() < 0.3) {
+            setSummonError(t('mc.noResponse'));
+            setIsSummoning(false);
+            abortControllerRef.current = null;
+            return;
+          }
+
+          const wakeDelay = 5000 + Math.random() * 5000;
+          await new Promise((resolve) => setTimeout(resolve, wakeDelay));
+
+          if (controller.signal.aborted || !mountedRef.current) {
+            abortControllerRef.current = null;
+            return;
+          }
+        }
+
+        try {
+          const soul: KerbalSoul = await getSoulCached(currentKerbal.name);
+          const params = statsToApiParams(soul);
+
+          const memoryCtx = KerbalMemory.buildMemoryContext(currentKerbal.name);
+          const moodCtx = moodSystem.buildMoodPrompt(currentKerbal.name);
+          const storyCtx = storyEngine.buildStoryPrompt(currentKerbal.name);
+          const toolsCtx = buildToolsPrompt(soul.role);
+          const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
+
+          const prefix = isWoken ? t('wake.prefix.stillWaking') : getWakePrefix(currentKerbal);
+
+          const messages = [
+            {
+              role: 'system' as const,
+              content: `${prefix}\n\n${soul.rawMarkdown}\n\n${moodCtx}\n\n${memoryCtx}\n\n${storyCtx}\n\n${toolsCtx}\n\n${narrativeRule}`,
+            },
+            { role: 'user' as const, content: trimmed },
+          ];
+
+          const result = await chatViaProvider(messages, {
+            temperature: params.temperature,
+            topP: params.topP,
+            noSystemPrompt: true,
+            signal: controller.signal,
+          });
+
+          if (controller.signal.aborted || !mountedRef.current) return;
+
+          wokenMapRef.current.add(currentKerbal.name);
+
+          const kerbalMsg: ThreadMessage = {
+            id: `msg-${Date.now()}-${currentKerbal.name}`,
+            sender: currentKerbal.name,
+            content: (result.reply && result.reply !== EMPTY_RESPONSE) ? result.reply : `*${currentKerbal.name} ${t('mc.mumbles')}*`,
+            timestamp: Date.now(),
+            isGroggy: true,
+          };
+          setMessages((prev) => [...prev, kerbalMsg]);
+          onNewReply?.(currentKerbal.name);
+
+          KerbalMemory.addSummary(currentKerbal.name, result.reply);
+          KerbalMemory.extractAndStore(currentKerbal.name, trimmed);
+          growthSystem.tick(currentKerbal.name, 'successful_chat');
+        } catch (err: unknown) {
+          if (!mountedRef.current) return;
+          growthSystem.tick(currentKerbal.name, 'error_response');
+          setSummonError(
+            err instanceof Error ? err.message : 'No response.',
+          );
+        } finally {
+          if (mountedRef.current) setIsSummoning(false);
+          if (abortControllerRef.current === controller) {
+            abortControllerRef.current = null;
+          }
+        }
+        return;
+      }
     }
 
     // ---- On-shift / On-break: real AI call with typing indicator ----
@@ -420,7 +664,9 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
       const moodCtx = moodSystem.buildMoodPrompt(currentKerbal.name);
       const storyCtx = storyEngine.buildStoryPrompt(currentKerbal.name);
       const toolsCtx = buildToolsPrompt(soul.role);
-      const systemPrompt = [soul.rawMarkdown, moodCtx, memoryCtx, storyCtx, toolsCtx].filter(Boolean).join('\n\n');
+      const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
+      const bathroomCtx = currentKerbal.position === 'bathroom' ? getWakePrefix(currentKerbal) : '';
+      const systemPrompt = [bathroomCtx, soul.rawMarkdown, moodCtx, memoryCtx, storyCtx, toolsCtx, narrativeRule].filter(Boolean).join('\n\n');
 
       const messages = [
         { role: 'system' as const, content: systemPrompt },
@@ -462,6 +708,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, kerbalMsg]);
+      onNewReply?.(currentKerbal.name);
 
       KerbalMemory.addSummary(currentKerbal.name, result.reply);
       moodSystem.tickMood(currentKerbal.name, 'user_interaction');
@@ -484,6 +731,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, kerbalMsg]);
+      onNewReply?.(currentKerbal.name);
     } finally {
       if (mountedRef.current) setIsGenerating(false);
       if (abortControllerRef.current === controller) {
@@ -493,6 +741,9 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
   }, []);
 
   const openThread = useCallback((kerbal: KerbalState) => {
+    // Pause idle banter so it doesn't compete for AI calls while user is chatting
+    idleBanter.pause();
+
     setActiveKerbal(kerbal);
     const saved = loadThreads();
     setMessages(saved[kerbal.name] ?? []);
@@ -521,9 +772,12 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
     setIsSummoning(false);
     setIsGenerating(false);
     setSummonError(null);
+    wokenMapRef.current = new Set();
   }, []);
 
   const backToContacts = useCallback(() => {
+    // Resume idle banter now that we're leaving the thread
+    idleBanter.resume();
     setView('contacts');
     setActiveKerbal(null);
     setMessages([]);
@@ -531,6 +785,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
     setIsSummoning(false);
     setIsGenerating(false);
     setSummonError(null);
+    wokenMapRef.current = new Set();
   }, []);
 
   const cancelMessage = useCallback(() => {
@@ -578,9 +833,9 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
           {/* Phone body — slides up from bottom-right like GTA */}
           <motion.div
             key="smartphone"
-            className="absolute right-6 bottom-0 w-[248px] h-[436px] bg-zinc-900 rounded-[2.8rem] border-[4px] border-zinc-500/60 shadow-2xl overflow-hidden flex flex-col"
+            className="absolute right-6 bottom-0 w-[252px] h-[440px] bg-zinc-800 rounded-[3rem] border-[1.5px] border-zinc-500/25 shadow-2xl overflow-hidden flex flex-col"
             style={{
-              boxShadow: '0 25px 60px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.08)',
+              boxShadow: '0 30px 80px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.06)',
             }}
             initial={{ y: '105%' }}
             animate={{ y: 0 }}
@@ -592,36 +847,22 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
               mass: 0.8,
             }}
           >
-        {/* Notch / speaker grille — more realistic */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center pointer-events-none" style={{ paddingTop: 8 }}>
-          {/* Camera lens */}
-          <div className="w-2.5 h-2.5 rounded-full bg-zinc-950 ring-[1.5px] ring-zinc-500/60 mb-0.5" />
-          {/* Speaker grille */}
-          <div className="w-10 h-[3px] rounded-full bg-zinc-800 ring-[0.5px] ring-zinc-600/30" />
+        {/* Dynamic Island */}
+        <div className="absolute top-[10px] left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+          <div className="w-[88px] h-[22px] rounded-full bg-black flex items-center justify-end px-3 gap-1.5"
+            style={{ boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.04)' }}>
+            <div className="w-[7px] h-[7px] rounded-full bg-zinc-900 ring-[0.5px] ring-zinc-700/30" />
+          </div>
         </div>
 
         {/* Screen — single scrollable surface, fully rounded inside */}
-        <div className="flex-1 flex flex-col text-white rounded-[2.4rem] overflow-hidden px-3" style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 100%)', margin: 4 }}>
-          {/* Status bar — extra horizontal padding keeps icons inside the ~45px corner radius */}
-          <div className="flex items-center justify-between px-6 pt-6 pb-1 text-[10px] text-zinc-300 shrink-0">
+        <div className="flex-1 flex flex-col text-white rounded-[2.8rem] overflow-hidden px-3" style={{ background: 'linear-gradient(180deg, #0a0a0f 0%, #0d0d1a 100%)', margin: 2 }}>
+          {/* Status bar — fresh rebuild */}
+          <div className="shrink-0 w-full flex items-center justify-between text-[11px] text-zinc-300" style={{ padding: '26px 44px 6px 44px' }}>
             <span className="font-semibold tracking-wide">
               {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
-            <div className="flex items-center gap-2">
-              {/* Signal bars */}
-              <svg width="14" height="10" viewBox="0 0 14 10" fill="none" className="text-zinc-300">
-                <rect x="0" y="6" width="2.5" height="4" rx="0.5" fill="currentColor" opacity="0.4"/>
-                <rect x="3.5" y="4" width="2.5" height="6" rx="0.5" fill="currentColor" opacity="0.6"/>
-                <rect x="7" y="2" width="2.5" height="8" rx="0.5" fill="currentColor" opacity="0.8"/>
-                <rect x="10.5" y="0" width="2.5" height="10" rx="0.5" fill="currentColor"/>
-              </svg>
-              {/* Battery */}
-              <svg width="16" height="10" viewBox="0 0 16 10" fill="none" className="text-zinc-300">
-                <rect x="0.5" y="0.5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="0.8" fill="none"/>
-                <rect x="14" y="3" width="1.5" height="4" rx="0.5" fill="currentColor" opacity="0.5"/>
-                <rect x="1.5" y="1.5" width="9" height="7" rx="1" fill="currentColor" opacity="0.85"/>
-              </svg>
-            </div>
+            <div className="flex items-center gap-1" />
           </div>
 
           {/* Header — context-aware back button */}
@@ -648,7 +889,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
               <div className="w-6 shrink-0" />
             )}
             <h2 className="text-sm font-semibold flex-1 truncate text-center">
-              {view === 'home' && 'KSC'}
+              {view === 'home' && 'KerbOffice'}
               {view === 'contacts' && t('mc.contacts')}
               {view === 'settings' && t('settings.title')}
               {view === 'thread' && (activeKerbal?.name ?? t('mc.chat'))}
@@ -741,7 +982,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                           {k.name}
                         </span>
                         <p className="text-[10px] text-zinc-500 mt-0.5">
-                          {statusText(s)}
+                          {statusText(k, s)}
                         </p>
                       </div>
                       {unread > 0 && (
@@ -776,6 +1017,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                     value={getSelectedProvider()}
                     onChange={e => {
                       setSelectedProvider(e.target.value);
+                      setKeySavedFeedback(null);
                       handleSettingsChange();
                     }}
                     style={{
@@ -788,10 +1030,91 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                       fontSize: 12,
                     }}
                   >
-                    {getConfiguredProviders().map(p => (
+                    {/* Show all built-in providers + any configured plugin providers */}
+                    {[...Object.keys(AI_PROVIDERS), ...getConfiguredProviders().filter(p => p.startsWith('plug_'))].map(p => (
                       <option key={p} value={p}>{resolveProviderConfig(p)?.label ?? p}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* API Key Input */}
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', marginBottom: 4, color: '#aaa', fontSize: 12 }}>
+                    {t('settings.apiKeys')}
+                  </label>
+                  {getSelectedProvider() === 'ollama' ? (
+                    <div style={{
+                      padding: '6px 0', color: '#888', fontSize: 12, fontStyle: 'italic',
+                    }}>
+                      {t('settings.runsLocally')}
+                    </div>
+                  ) : getSelectedProvider().startsWith('plug_') ? null : (
+                    <div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          key={getSelectedProvider()}
+                          type="password"
+                          defaultValue={getCustomApiKey(getSelectedProvider()) ?? ''}
+                          onBlur={e => {
+                            const val = e.target.value.trim();
+                            if (val) {
+                              setApiKey(getSelectedProvider(), val);
+                              setKeySavedFeedback(t('settings.keySaved'));
+                              setTimeout(() => setKeySavedFeedback(null), 2000);
+                              handleSettingsChange();
+                            }
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              const val = (e.target as HTMLInputElement).value.trim();
+                              if (val) {
+                                setApiKey(getSelectedProvider(), val);
+                                setKeySavedFeedback(t('settings.keySaved'));
+                                setTimeout(() => setKeySavedFeedback(null), 2000);
+                                handleSettingsChange();
+                              }
+                            }
+                          }}
+                          placeholder={t('common.placeholder')}
+                          style={{
+                            flex: 1,
+                            padding: '6px 8px',
+                            background: '#1a1a2e',
+                            color: '#fff',
+                            border: '1px solid #333',
+                            borderRadius: 4,
+                            fontSize: 12,
+                          }}
+                        />
+                        {keySavedFeedback && (
+                          <span style={{
+                            color: '#4caf50', fontSize: 11, whiteSpace: 'nowrap', fontWeight: 'bold',
+                          }}>
+                            {keySavedFeedback}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ color: '#666', fontSize: 11, marginTop: 4 }}>
+                        {t('settings.apiKeysDesc')}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No-key warning for selected provider */}
+                  {getSelectedProvider() !== 'ollama' && !getSelectedProvider().startsWith('plug_') && !getCustomApiKey(getSelectedProvider()) && (
+                    <div style={{
+                      marginTop: 6,
+                      padding: '6px 8px',
+                      background: 'rgba(255, 152, 0, 0.1)',
+                      border: '1px solid rgba(255, 152, 0, 0.4)',
+                      borderRadius: 4,
+                      color: '#ffb74d',
+                      fontSize: 11,
+                      lineHeight: 1.4,
+                    }}>
+                      {t('settings.noKeyForSelected')}
+                    </div>
+                  )}
                 </div>
 
                 {/* Model Input */}
@@ -813,6 +1136,50 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                       }
                     }}
                     placeholder="e.g. gpt-4"
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      background: '#1a1a2e',
+                      color: '#fff',
+                      border: '1px solid #333',
+                      borderRadius: 4,
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+
+                {/* User Profile */}
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: 'block', marginBottom: 4, color: '#aaa', fontSize: 12 }}>
+                    About Me
+                  </label>
+                  <input
+                    defaultValue={UserProfile.load().name}
+                    placeholder="Your name (optional)"
+                    onChange={(e) => {
+                      const p = UserProfile.load();
+                      p.name = e.target.value;
+                      UserProfile.save(p);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      background: '#1a1a2e',
+                      color: '#fff',
+                      border: '1px solid #333',
+                      borderRadius: 4,
+                      fontSize: 12,
+                      marginBottom: 6,
+                    }}
+                  />
+                  <input
+                    defaultValue={UserProfile.load().description}
+                    placeholder="A short note about you (optional)"
+                    onChange={(e) => {
+                      const p = UserProfile.load();
+                      p.description = e.target.value;
+                      UserProfile.save(p);
+                    }}
                     style={{
                       width: '100%',
                       padding: '6px 8px',
@@ -871,7 +1238,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
             ) : (
               <>
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 min-h-0 overscroll-contain [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                <div className="flex-1 overflow-y-auto px-2 py-3 space-y-2 min-h-0 overscroll-contain [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-700 [&::-webkit-scrollbar-track]:bg-transparent">
                   {messages.length === 0 && !isSummoning && !isGenerating && (
                     <p className="text-center text-[10px] text-zinc-600 mt-8 px-2">
                       {t('mc.startConversation')} {activeKerbal?.name}
@@ -886,7 +1253,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                       }`}
                     >
                       <div
-                        className={`max-w-[80%] px-2.5 py-1.5 rounded-2xl text-xs leading-snug ${
+                        className={`max-w-[85%] px-2.5 py-1.5 rounded-2xl text-xs leading-snug ${
                           msg.sender === 'user'
                             ? 'bg-blue-600 text-white rounded-br-md'
                             : msg.isGroggy
@@ -894,7 +1261,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                               : 'bg-zinc-800 text-zinc-300 rounded-bl-md'
                         }`}
                       >
-                        <p className="whitespace-pre-wrap break-words">
+                        <p className="whitespace-pre-wrap break-all overflow-hidden">
                           {msg.content}
                         </p>
                         <span
@@ -941,11 +1308,11 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                 </div>
 
                 {/* Input */}
-                <div className="border-t border-zinc-800/60 px-3 py-2 flex gap-2 items-center shrink-0">
+                <div className="border-t border-zinc-800/60 px-2 py-1.5 flex gap-1.5 items-center shrink-0 overflow-hidden justify-center">
                   <input
                     ref={inputRef}
                     type="text"
-                    className="flex-1 min-w-0 bg-zinc-800 text-white text-xs rounded-full px-3 py-1.5 outline-none placeholder-zinc-500 focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                    className="w-[160px] shrink-0 bg-zinc-800 text-white text-xs rounded-full px-3 py-1.5 outline-none placeholder-zinc-500 focus:ring-1 focus:ring-inset focus:ring-blue-500"
                     placeholder={
                       (() => {
                         if (isSummoning) return t('mc.waitingPlaceholder');
@@ -957,6 +1324,7 @@ const SmartphoneModal: React.FC<SmartphoneModalProps> = ({ isOpen, onClose, perC
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
                     disabled={isSummoning || isGenerating}
+                    style={{ boxSizing: 'border-box', maxWidth: '100%', minWidth: 0 }}
                   />
                   {isSummoning || isGenerating ? (
                     <button

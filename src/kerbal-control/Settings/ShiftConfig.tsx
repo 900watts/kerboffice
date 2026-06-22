@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { kerbalStore } from '../KerbalStore';
 import type { ShiftAssignment } from '../KerbalStore';
+import { DEFAULT_DAY_SHIFT, DEFAULT_NIGHT_SHIFT } from '../ShiftDefaults';
 import type { IdleConfig } from '../Chat/IdleBanter';
 import { useT } from '../../services/i18n';
 
-const DEFAULT_DAY_SHIFT: string[] = ['Jebediah', 'Bill', 'Valentina', 'Bob', 'Wernher'];
-const DEFAULT_NIGHT_SHIFT: string[] = ['Bobak', 'Gene', 'Mortimer', 'Linus', 'Walt'];
+// NOTE: DEFAULT_DAY_SHIFT / DEFAULT_NIGHT_SHIFT are imported from ShiftDefaults.ts
+// (single source of truth shared with KerbalStore). Do NOT redefine them here.
 
 const IDLE_DELAY_OPTIONS = [3, 5, 10, 15];
 const FREQUENCY_OPTIONS: { value: IdleConfig['frequency']; label: string }[] = [

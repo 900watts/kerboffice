@@ -8,6 +8,7 @@ import { t } from '../../services/i18n';
 import { worldContext } from '../WorldContext';
 import { moodSystem } from '../MoodSystem';
 import { relationshipGraph } from '../RelationshipGraph';
+import { UserProfile } from '../UserProfile';
 import { storyEngine } from '../StoryEngine';
 import { growthSystem } from '../GrowthSystem';
 
@@ -62,7 +63,11 @@ function adaptiveCooldown(idleMs: number, baseFreq: keyof typeof FREQUENCY_MINUT
 
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
 
-const BANTER_TIMEOUT_MS = 15_000; // 15 seconds per banter message
+const BANTER_TIMEOUT_MS = 8_000; // 8 seconds per banter message
+
+// Conversation flow constants — how many total messages per banter round
+const CONVERSATION_MAX_MESSAGES = 7;   // max total messages per conversation (incl. opener)
+const MIN_CONVERSATION_MESSAGES = 4;   // minimum before wrap-up is allowed
 
 // ---------------------------------------------------------------------------
 // Topic pool for contextual conversations
@@ -158,6 +163,27 @@ export class IdleBanter {
     this.roundInProgress = false;
   }
 
+  /**
+   * Pause banter without resetting isRunning state.
+   * Clears interval so no new AI calls fire while the phone is active.
+   */
+  pause(): void {
+    if (this.intervalId !== null) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+
+  /**
+   * Resume banter after pause, restoring the interval if wasRunning.
+   */
+  resume(): void {
+    if (!this.isRunning) return;
+    if (this.config.frequency === 'never' || !this.config.enabled) return;
+    if (this.intervalId !== null) return; // already running
+    this.intervalId = setInterval(() => this.tick(), POLL_INTERVAL_MS);
+  }
+
   /** Merge a partial config, persist, and restart if running. */
   updateConfig(patch: Partial<IdleConfig>): void {
     const wasRunning = this.isRunning;
@@ -227,6 +253,7 @@ export class IdleBanter {
   private async runBanterRound(): Promise<void> {
     this.roundInProgress = true;
 
+    const conversation: Array<{ kerbalName: string; content: string }> = [];
     let participants: KerbalState[] = [];
 
     try {
@@ -240,50 +267,59 @@ export class IdleBanter {
       );
       const shuffled = [...candidates].sort(() => Math.random() - 0.5);
       const initiator = shuffled[0];
-      // Prefer kerbals who have strong feelings about the initiator
       const compatible = relationshipGraph.getStrongFeelings(initiator.name, shuffled.slice(1).map(k => k.name));
-      const followers = compatible.length > 0
+      const followerNames = compatible.length > 0
         ? compatible.slice(0, count - 1)
         : shuffled.slice(1, count).map(k => k.name);
-      participants = [initiator, ...followers.map(name => kerbalStore.getByName(name)!).filter(Boolean)];
+      participants = [initiator, ...followerNames.map(name => kerbalStore.getByName(name)!).filter(Boolean)];
 
       // Pick a topic — mix story topics with banter topics
       const storyTopics = storyEngine.getStoryTopics();
       const allTopics = [...storyTopics, ...BANTER_TOPICS];
       const topic = allTopics[Math.floor(Math.random() * allTopics.length)];
 
-      // --- Initiate: first Kerbal comments on the topic ---
-      const opening = await this.generateMessage(initiator, topic, 'initiator');
-
+      // ---- Step 1: Initiator opens ----
+      const opening = await this.generateMessage(initiator, `Topic: ${topic}`, 'initiator');
+      conversation.push({ kerbalName: initiator.name, content: opening });
       this.emit({
         kerbalName: initiator.name,
         content: opening,
         timestamp: Date.now(),
         isBanter: true,
       });
-
-      // Brief pause between messages for natural rhythm
       await this.delay(2000 + Math.random() * 3000);
 
-      // --- Responders ---
-      for (let i = 1; i < participants.length; i++) {
-        const responder = participants[i];
-        const priorContext =
-          i === 1
-            ? `${initiator.name} said: "${opening}"\nTopic: ${topic}`
-            : `Topic: ${topic} — respond to the conversation above`;
+      // ---- Step 2: Multi-turn back-and-forth ----
+      const maxMessages = Math.min(CONVERSATION_MAX_MESSAGES, participants.length * 3 + 1);
+      const minMessages = Math.min(MIN_CONVERSATION_MESSAGES, maxMessages);
 
-        const reply = await this.generateMessage(responder, priorContext, 'responder');
+      for (let round = 1; round < maxMessages; round++) {
+        // Pick someone who isn't the last speaker
+        const lastSpeaker = conversation[conversation.length - 1].kerbalName;
+        const others = participants.filter(p => p.name !== lastSpeaker);
+        if (others.length === 0) break;
+
+        // After minimum messages, add a chance to wrap up naturally
+        if (round >= minMessages && Math.random() < 0.25) break;
+
+        const speaker = others[Math.floor(Math.random() * others.length)];
+
+        // Build conversation transcript as context
+        const transcript = conversation
+          .map(msg => `${msg.kerbalName}: ${msg.content}`)
+          .join('\n');
+        const context = `Topic: ${topic}\n\nConversation so far:\n${transcript}`;
+
+        const reply = await this.generateMessage(speaker, context, 'responder');
+        conversation.push({ kerbalName: speaker.name, content: reply });
         this.emit({
-          kerbalName: responder.name,
+          kerbalName: speaker.name,
           content: reply,
           timestamp: Date.now(),
           isBanter: true,
         });
 
-        if (i < participants.length - 1) {
-          await this.delay(1500 + Math.random() * 2000);
-        }
+        await this.delay(2000 + Math.random() * 2500);
       }
     } finally {
       // Tick moods and record relationships for all participant pairs
@@ -326,12 +362,18 @@ export class IdleBanter {
       const params = statsToApiParams(soul);
 
       // Build messages: soul markdown as the system prompt, context as user
+      const narrativeRule = `IMPORTANT: You are a character in a real-time chat. Speak naturally and directly in first person. NEVER describe your own actions in third-person narrative style. Never write things like "[Name] crosses her arms" or "[Name] raises an eyebrow." Just speak as yourself — first person, natural conversation, as if you're in a chat room.`;
+      const brevityRule = `KEEP YOUR RESPONSE SHORT — one or two sentences maximum. Be concise like a quick chat message. No long paragraphs, no rambling.`;
+      const userProfileCtx = UserProfile.buildContext();
+      const userContent = role === 'initiator'
+        ? `[BANTER - opener] ${context}. Start a conversation about this topic. Keep it short — 1-2 sentences.`
+        : `[BANTER - reply] ${context}. Reply naturally to the conversation. Keep it short — 1-2 sentences.`;
       const messages = [
-        { role: 'system' as const, content: soul.rawMarkdown },
-        { role: 'user' as const, content: `[BANTER - ${role}] ${context}` },
+        { role: 'system' as const, content: [soul.rawMarkdown, userProfileCtx, narrativeRule, brevityRule].filter(Boolean).join('\n\n') },
+        { role: 'user' as const, content: userContent },
       ];
 
-      // 15-second timeout — kerbals shouldn't take forever to chat
+      // 8-second timeout — kerbals shouldn't take forever to chat
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), BANTER_TIMEOUT_MS);
 
@@ -371,6 +413,12 @@ export class IdleBanter {
         t('banter.fallback.initiator.1', { context }),
         t('banter.fallback.initiator.2', { context }),
         t('banter.fallback.initiator.3', { context }),
+        t('banter.fallback.initiator.4', { context }),
+        t('banter.fallback.initiator.5', { context }),
+        t('banter.fallback.initiator.6', { context }),
+        t('banter.fallback.initiator.7', { context }),
+        t('banter.fallback.initiator.8', { context }),
+        t('banter.fallback.initiator.9', { context }),
       ],
       responder: [
         t('banter.fallback.responder.0'),
@@ -378,6 +426,16 @@ export class IdleBanter {
         t('banter.fallback.responder.2'),
         t('banter.fallback.responder.3'),
         t('banter.fallback.responder.4'),
+        t('banter.fallback.responder.5'),
+        t('banter.fallback.responder.6'),
+        t('banter.fallback.responder.7'),
+        t('banter.fallback.responder.8'),
+        t('banter.fallback.responder.9'),
+        t('banter.fallback.responder.10'),
+        t('banter.fallback.responder.11'),
+        t('banter.fallback.responder.12'),
+        t('banter.fallback.responder.13'),
+        t('banter.fallback.responder.14'),
       ],
     };
 

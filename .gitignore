@@ -1,5 +1,14 @@
 node_modules/
 dist/
 dist-tsc/
+dist-electron/
+release/
+build/
+.workbuddy/
 *.js.map
+*.log
 .env
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+overview.md

@@ -90,6 +90,11 @@ interface RenderOpts {
   suitColor: SuitColor;
   courage: number;   // 0..1
   stupidity: number; // 0..1
+  /** When set, only renders the specified portion of the kerbal.
+   *  'full' = everything (default when undefined).
+   *  'lower' = shadow + legs (for sitting kerbals rendered behind desk).
+   *  'upper' = body + arms + head + accessories (for sitting kerbals above desk). */
+  renderPart?: 'full' | 'lower' | 'upper';
 }
 
 // ---------------------------------------------------------------------------
@@ -117,21 +122,32 @@ function roundRect(
   ctx.closePath();
 }
 
+// ===========================================================================
+//  ALL DRAWING FUNCTIONS BELOW HAVE BEEN COMPLETELY REDESIGNED
+//  New visual style: cute green KSP alien with big eyes, stubby limbs,
+//  helmet dome, antenna, expressive face, and animated poses.
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
 // Floor shadow
 // ---------------------------------------------------------------------------
 
 function drawShadow(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const s = opts.scale;
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  const isSitting = opts.state === 'sitting';
+  const shadowW = isSitting ? 14 * s : 10 * s;
+  const shadowH = isSitting ? 4 * s : 3 * s;
+
+  // Core shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
   ctx.beginPath();
-  ctx.ellipse(opts.x, opts.y + 8 * s, 9 * s, 3.5 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(opts.x, opts.y + 6 * s, shadowW, shadowH, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Softer outer shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
   ctx.beginPath();
-  ctx.ellipse(opts.x, opts.y + 8 * s, 12 * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(opts.x, opts.y + 6 * s, shadowW * 1.3, shadowH * 1.5, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -142,20 +158,19 @@ function drawShadow(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
 function drawBackpack(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const s = opts.scale;
   const bx = opts.x;
-  // Positioned behind the upper back / shoulders
   const by = opts.y - 24 * s;
-  const bw = 12 * s;
-  const bh = 15 * s;
+  const bw = 11 * s;
+  const bh = 12 * s;
 
-  // Main pack body
-  ctx.fillStyle = '#808080';
+  // Main pack (rounder, more compact — KSP style)
+  ctx.fillStyle = '#7a7a7a';
   ctx.strokeStyle = '#5a5a5a';
-  ctx.lineWidth = 0.8 * s;
-  roundRect(ctx, bx - bw / 2, by, bw, bh, 2.5 * s);
+  ctx.lineWidth = 0.6 * s;
+  roundRect(ctx, bx - bw / 2, by, bw, bh, 3.5 * s);
   ctx.fill();
   ctx.stroke();
 
-  // Pack panel detail
+  // Center seam
   ctx.strokeStyle = '#6a6a6a';
   ctx.lineWidth = 0.4 * s;
   ctx.beginPath();
@@ -163,93 +178,61 @@ function drawBackpack(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   ctx.lineTo(bx, by + bh - 1.5 * s);
   ctx.stroke();
 
-  // Horizontal strap detail
-  ctx.beginPath();
-  ctx.moveTo(bx - bw / 2 + 2 * s, by + bh * 0.4);
-  ctx.lineTo(bx + bw / 2 - 2 * s, by + bh * 0.4);
-  ctx.stroke();
-
   // Small indicator light
   ctx.fillStyle = '#44cc44';
   ctx.beginPath();
-  ctx.arc(bx - 2 * s, by + bh * 0.35, 1 * s, 0, Math.PI * 2);
+  ctx.arc(bx - 2 * s, by + 3 * s, 1 * s, 0, Math.PI * 2);
   ctx.fill();
 
   // Indicator glow
-  ctx.fillStyle = 'rgba(68,204,68,0.3)';
+  ctx.fillStyle = 'rgba(68,204,68,0.25)';
   ctx.beginPath();
-  ctx.arc(bx - 2 * s, by + bh * 0.35, 2 * s, 0, Math.PI * 2);
+  ctx.arc(bx - 2 * s, by + 3 * s, 1.8 * s, 0, Math.PI * 2);
   ctx.fill();
 }
 
 // ---------------------------------------------------------------------------
-// Legs with chunky boots
+// Legs — short, stubby, with chunky boots
 // ---------------------------------------------------------------------------
 
 function drawLegs(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const s = opts.scale;
   const x = opts.x;
-  const legTopY = opts.y - 6 * s;
+  const hipY = opts.y - 8 * s;
   const legLen = 8 * s;
-  const legW = 3.5 * s;
-  const gap = 3 * s;
+  const legW = 4 * s;
+  const legGap = 2.5 * s;
   const legColor = '#5a5a5a';
 
   let leftShift = 0;
   let rightShift = 0;
 
   if (opts.state === 'walking') {
-    const cycle = Math.sin(opts.frameIndex * 0.5);
-    leftShift = cycle * 4 * s;
-    rightShift = -cycle * 4 * s;
+    const cycle = Math.sin(opts.frameIndex * 0.4);
+    leftShift = cycle * 3.5 * s;
+    rightShift = -cycle * 3.5 * s;
   }
 
   [-1, 1].forEach((side) => {
     const shift = side < 0 ? leftShift : rightShift;
-    const legX = x + side * gap - legW / 2;
+    const legX = x + side * legGap - legW / 2 + shift;
 
-    // Leg (dark fabric)
+    // Leg segment (short and round)
     ctx.fillStyle = legColor;
-    ctx.strokeStyle = '#3a3a3a';
-    ctx.lineWidth = 0.5 * s;
-    roundRect(ctx, legX + shift, legTopY, legW, legLen, 1.5 * s);
+    roundRect(ctx, legX, hipY, legW, legLen, 2 * s);
     ctx.fill();
-    ctx.stroke();
 
-    // Knee crease
-    ctx.strokeStyle = '#444';
-    ctx.lineWidth = 0.3 * s;
-    ctx.beginPath();
-    ctx.moveTo(legX + shift + 0.5 * s, legTopY + legLen * 0.5);
-    ctx.lineTo(legX + shift + legW - 0.5 * s, legTopY + legLen * 0.5);
-    ctx.stroke();
-
-    // Boot
-    const bootX = legX - 1.2 * s + shift;
-    const bootY = legTopY + legLen - 1 * s;
-    const bootW = legW + 2.4 * s;
-    const bootH = 4.5 * s;
-
-    // Boot body
+    // Boot (chunky rounded boot)
+    const bootY = hipY + legLen - 1.5 * s;
+    const bootW = legW + 2.5 * s;
     ctx.fillStyle = '#3a3a3a';
-    ctx.strokeStyle = '#1a1a1a';
-    ctx.lineWidth = 0.5 * s;
-    roundRect(ctx, bootX, bootY, bootW, bootH, 2 * s);
+    roundRect(ctx, legX - 1 * s, bootY, bootW, 4 * s, 2 * s);
     ctx.fill();
-    ctx.stroke();
 
-    // Boot sole (thicker, darker)
+    // Boot sole (darker strip at bottom)
     ctx.fillStyle = '#1a1a1a';
-    roundRect(ctx, bootX + 0.3 * s, bootY + bootH - 1.8 * s, bootW - 0.6 * s, 1.8 * s, 1 * s);
+    roundRect(ctx, legX - 0.7 * s, bootY + 2.5 * s, bootW - 0.6 * s, 1.5 * s, 0.8 * s);
     ctx.fill();
-
-    // Boot top rim highlight
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 0.3 * s;
-    ctx.beginPath();
-    ctx.moveTo(bootX + 0.8 * s, bootY + 0.3 * s);
-    ctx.lineTo(bootX + bootW - 0.8 * s, bootY + 0.3 * s);
-    ctx.stroke();
   });
 }
 
@@ -258,58 +241,42 @@ function drawSittingLegs(ctx: CanvasRenderingContext2D, opts: RenderOpts): void 
   const s = opts.scale;
   const x = opts.x;
   const hipY = opts.y - 3 * s;
-  const thighLen = 6 * s;
-  const shinLen = 6 * s;
-  const legW = 3.5 * s;
   const legColor = '#5a5a5a';
 
   [-1, 1].forEach((side) => {
-    // Thigh: forward (down-right)
-    ctx.save();
-    ctx.fillStyle = legColor;
-    ctx.strokeStyle = '#3a3a3a';
-    ctx.lineWidth = 0.5 * s;
-
     const hipX = x + side * 2.5 * s;
-    const kneeX = hipX + side * 3 * s;
-    const kneeY = hipY + thighLen;
-    const footX = kneeX;
+    const kneeX = hipX + side * 4 * s;
+    const kneeY = hipY + 4 * s;
 
-    // Thigh
+    // Thigh (angled forward)
+    ctx.fillStyle = legColor;
     ctx.beginPath();
-    ctx.moveTo(hipX - legW / 2, hipY);
-    ctx.lineTo(kneeX + (side < 0 ? -legW / 2 : legW / 2), kneeY);
-    ctx.lineTo(kneeX + (side < 0 ? legW / 2 : -legW / 2), kneeY);
-    ctx.lineTo(hipX + legW / 2, hipY);
+    ctx.moveTo(hipX - 2 * s, hipY);
+    ctx.lineTo(kneeX + side * 2 * s, kneeY);
+    ctx.lineTo(kneeX - side * 2 * s, kneeY);
+    ctx.lineTo(hipX + 2 * s, hipY);
     ctx.closePath();
     ctx.fill();
-    ctx.stroke();
 
-    // Shin (vertical)
-    roundRect(ctx, footX - legW / 2, kneeY, legW, shinLen, 1.5 * s);
+    // Shin (vertical down from knee)
+    roundRect(ctx, kneeX - 2 * s, kneeY, 4 * s, 5 * s, 1.5 * s);
     ctx.fill();
-    ctx.stroke();
 
     // Boot
-    const bootX = footX - 1.5 * s;
-    const bootY = kneeY + shinLen - 1 * s;
+    const bootY = kneeY + 5 * s - 1 * s;
     ctx.fillStyle = '#3a3a3a';
-    ctx.strokeStyle = '#1a1a1a';
-    roundRect(ctx, bootX, bootY, legW + 3 * s, 4 * s, 2 * s);
+    roundRect(ctx, kneeX - 3 * s, bootY, 6 * s, 4 * s, 2 * s);
     ctx.fill();
-    ctx.stroke();
 
     // Boot sole
     ctx.fillStyle = '#1a1a1a';
-    roundRect(ctx, bootX + 0.3 * s, bootY + 2.2 * s, legW + 2.4 * s, 1.8 * s, 1 * s);
+    roundRect(ctx, kneeX - 2.7 * s, bootY + 2.5 * s, 5.4 * s, 1.5 * s, 0.8 * s);
     ctx.fill();
-
-    ctx.restore();
   });
 }
 
 // ---------------------------------------------------------------------------
-// Body (torso with EVA suit details)
+// Body — short, stubby torso with EVA suit details
 // ---------------------------------------------------------------------------
 
 function drawBody(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
@@ -317,164 +284,108 @@ function drawBody(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const x = opts.x;
   const fill = SUIT_FILLS[opts.suitColor];
   const dark = SUIT_DARKS[opts.suitColor];
-  const light = SUIT_LIGHTS[opts.suitColor];
   const detail = SUIT_DETAIL[opts.suitColor];
 
-  // Body stretches slightly when stretching
-  const stretchFactor = opts.state === 'stretching' ? 1.12 : 1;
-  const bodyTopY = opts.y - 20 * s - (opts.state === 'stretching' ? 1.5 * s : 0);
-  const bodyW = 16 * s;
-  const bodyH = 14 * s * stretchFactor;
+  const stretchFactor = opts.state === 'stretching' ? 1.1 : 1;
+  const bodyTopY = opts.y - 20 * s;
+  const bodyW = 14 * s;
+  const bodyH = 11 * s * stretchFactor;
 
-  // Main torso
+  // Main stubby rounded torso
   ctx.fillStyle = fill;
   ctx.strokeStyle = dark;
-  ctx.lineWidth = 0.8 * s;
-  roundRect(ctx, x - bodyW / 2, bodyTopY, bodyW, bodyH, 4 * s);
+  ctx.lineWidth = 0.6 * s;
+  roundRect(ctx, x - bodyW / 2, bodyTopY, bodyW, bodyH, 4.5 * s);
   ctx.fill();
   ctx.stroke();
 
-  // Shoulder pads (subtle curved extensions)
-  ctx.fillStyle = light;
-  ctx.strokeStyle = dark;
-  ctx.lineWidth = 0.4 * s;
-  [-1, 1].forEach((side) => {
-    ctx.beginPath();
-    const sx = x + side * (bodyW / 2 + 1.5 * s);
-    const sy = bodyTopY + 2 * s;
-    ctx.ellipse(sx, sy, 3 * s, 2 * s, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-  });
-
-  // Vertical suit seam (centre zipper line)
-  ctx.strokeStyle = dark;
-  ctx.lineWidth = 0.4 * s;
-  ctx.setLineDash([2.5 * s, 2.5 * s]);
-  ctx.beginPath();
-  ctx.moveTo(x, bodyTopY + 2.5 * s);
-  ctx.lineTo(x, bodyTopY + bodyH - 2.5 * s);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Chest control panel / equipment patch
-  const panelW = 6.5 * s;
-  const panelH = 4.5 * s;
-  const panelX = x - panelW / 2;
-  const panelY = bodyTopY + 2.5 * s;
+  // Nav badge / chest patch (small square)
+  const badgeW = 4.5 * s;
+  const badgeH = 3 * s;
   ctx.fillStyle = detail;
-  ctx.globalAlpha = 0.5;
-  roundRect(ctx, panelX, panelY, panelW, panelH, 2 * s);
+  ctx.globalAlpha = 0.55;
+  roundRect(ctx, x - badgeW / 2, bodyTopY + 2 * s, badgeW, badgeH, 1.2 * s);
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // Panel inner detail
-  ctx.fillStyle = dark;
-  ctx.globalAlpha = 0.35;
-  roundRect(ctx, panelX + 1 * s, panelY + 1 * s, panelW - 2 * s, panelH - 2 * s, 1 * s);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-
-  // Small coloured buttons on panel
-  const btnY = panelY + panelH / 2;
+  // Decorative buttons on badge
+  const btnY = bodyTopY + 3.5 * s;
   ctx.fillStyle = '#44cc44';
   ctx.beginPath();
-  ctx.arc(x - 1.5 * s, btnY, 0.6 * s, 0, Math.PI * 2);
+  ctx.arc(x - 1 * s, btnY, 0.5 * s, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#cc4444';
   ctx.beginPath();
-  ctx.arc(x, btnY, 0.6 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#4488cc';
-  ctx.beginPath();
-  ctx.arc(x + 1.5 * s, btnY, 0.6 * s, 0, Math.PI * 2);
+  ctx.arc(x + 1 * s, btnY, 0.5 * s, 0, Math.PI * 2);
   ctx.fill();
 
   // Belt at waist
-  const beltY = bodyTopY + bodyH - 3.5 * s;
+  const beltY = bodyTopY + bodyH - 3 * s;
   ctx.fillStyle = '#555';
-  ctx.strokeStyle = '#2a2a2a';
-  ctx.lineWidth = 0.5 * s;
-  roundRect(ctx, x - bodyW / 2 + 0.8 * s, beltY, bodyW - 1.6 * s, 3 * s, 1.5 * s);
+  roundRect(ctx, x - bodyW / 2 + 1.5 * s, beltY, bodyW - 3 * s, 2.5 * s, 1.2 * s);
   ctx.fill();
-  ctx.stroke();
 
   // Belt buckle
   ctx.fillStyle = '#c0a060';
-  ctx.strokeStyle = '#8a7030';
-  ctx.lineWidth = 0.4 * s;
-  roundRect(ctx, x - 2 * s, beltY + 0.3 * s, 4 * s, 2.4 * s, 0.8 * s);
+  roundRect(ctx, x - 1.5 * s, beltY + 0.3 * s, 3 * s, 1.9 * s, 0.6 * s);
   ctx.fill();
-  ctx.stroke();
-
-  // Horizontal suit seam below chest
-  ctx.strokeStyle = dark;
-  ctx.lineWidth = 0.3 * s;
-  ctx.globalAlpha = 0.5;
-  ctx.beginPath();
-  ctx.moveTo(x - bodyW / 2 + 2 * s, panelY + panelH + 0.5 * s);
-  ctx.lineTo(x + bodyW / 2 - 2 * s, panelY + panelH + 0.5 * s);
-  ctx.stroke();
-  ctx.globalAlpha = 1;
 }
 
 // ---------------------------------------------------------------------------
-// Arms with gloves
+// Arms — short stumpy arms with 3-fingered hands
 // ---------------------------------------------------------------------------
 
 function drawArms(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const s = opts.scale;
   const x = opts.x;
-  const bodyW = 16 * s;
   const shoulderY = opts.y - 18 * s;
   const fill = SUIT_FILLS[opts.suitColor];
   const dark = SUIT_DARKS[opts.suitColor];
 
-  // Determine arm angles based on animation state
-  let leftAngle = -0.12;
-  let rightAngle = 0.12;
+  // Arm angles based on animation state
+  let leftAngle = 0.15;
+  let rightAngle = -0.15;
 
   switch (opts.state) {
     case 'typing': {
-      const osc = Math.sin(opts.frameIndex * 1.2) * 0.55;
-      leftAngle = -0.3 + osc;
-      rightAngle = 0.3 - osc;
+      const osc = Math.sin(opts.frameIndex * 1.5) * 0.4;
+      leftAngle = 0.5 + osc;
+      rightAngle = -0.5 - osc;
       break;
     }
     case 'drinking': {
-      // Right arm up to mouth
-      rightAngle = -1.7;
-      leftAngle = -0.08;
+      // Right arm up holding cup near mouth
+      rightAngle = -1.6;
+      leftAngle = 0.1;
       break;
     }
     case 'stretching': {
-      // Both arms straight up
-      leftAngle = -2.7;
-      rightAngle = 2.7;
+      // Both arms up (yawn stretch)
+      leftAngle = -2.5;
+      rightAngle = 2.5;
       break;
     }
     case 'sleeping': {
       // Arms relaxed at sides
-      leftAngle = 0.12;
-      rightAngle = -0.12;
+      leftAngle = 0.2;
+      rightAngle = -0.2;
       break;
     }
     case 'walking': {
       // Swing opposite to legs
-      const swing = Math.sin(opts.frameIndex * 0.5) * 0.3;
-      leftAngle = -0.12 - swing;
-      rightAngle = 0.12 + swing;
+      const swing = Math.sin(opts.frameIndex * 0.5) * 0.25;
+      leftAngle = 0.15 + swing;
+      rightAngle = -0.15 - swing;
       break;
     }
     case 'entering': {
       // Cheerful wave with right arm
-      const wave = Math.sin(opts.frameIndex * 2.2) * 0.4;
-      rightAngle = -1.1 + wave;
-      leftAngle = -0.15;
+      const wave = Math.sin(opts.frameIndex * 2) * 0.35;
+      rightAngle = -1.0 + wave;
+      leftAngle = 0.1;
       break;
     }
     case 'leaving': {
-      // Looking back — arms slightly back
       rightAngle = 0.08;
       leftAngle = -0.12;
       break;
@@ -485,51 +396,42 @@ function drawArms(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
 
   [-1, 1].forEach((side) => {
     const angle = side < 0 ? leftAngle : rightAngle;
-    const shoulderX = x + side * (bodyW / 2 + 1 * s);
+    const shoulderX = x + side * 7.5 * s;
 
     ctx.save();
     ctx.translate(shoulderX, shoulderY);
     ctx.rotate(angle);
 
-    // Arm segment (short and stumpy — KSP style)
-    const armLen = 7.0 * s;
-    const armW = 3.5 * s;
+    // Upper arm segment (short)
+    const armLen = 5.5 * s;
+    const armW = 3 * s;
 
     ctx.fillStyle = fill;
     ctx.strokeStyle = dark;
-    ctx.lineWidth = 0.6 * s;
-    roundRect(ctx, 0, -armW / 2, armLen, armW, 1.8 * s);
+    ctx.lineWidth = 0.5 * s;
+    roundRect(ctx, 0, -armW / 2, armLen, armW, 1.5 * s);
     ctx.fill();
     ctx.stroke();
 
-    // Elbow crease
-    ctx.strokeStyle = dark;
-    ctx.lineWidth = 0.3 * s;
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.moveTo(armLen * 0.55, -armW / 2 + 0.4 * s);
-    ctx.lineTo(armLen * 0.55, armW / 2 - 0.4 * s);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    // Glove (thicker, rounded, slightly darker)
-    const gloveLen = 3 * s;
-    const gloveW = 4.5 * s;
-    const gloveX = armLen - 0.8 * s;
+    // 3-fingered hand (round, wider than arm)
+    const handX = armLen - 0.5 * s;
+    const handW = 2.5 * s;
+    const handH = 4 * s;
 
     ctx.fillStyle = '#6a6a6a';
-    ctx.strokeStyle = '#3a3a3a';
-    ctx.lineWidth = 0.5 * s;
-    roundRect(ctx, gloveX, -gloveW / 2, gloveLen, gloveW, 2 * s);
+    roundRect(ctx, handX, -handH / 2, handW, handH, 1.8 * s);
     ctx.fill();
-    ctx.stroke();
 
-    // Glove finger division line
+    // Finger division lines (three fingers)
     ctx.strokeStyle = '#555';
-    ctx.lineWidth = 0.3 * s;
+    ctx.lineWidth = 0.25 * s;
     ctx.beginPath();
-    ctx.moveTo(gloveX + gloveLen * 0.6, -gloveW / 2 + 0.5 * s);
-    ctx.lineTo(gloveX + gloveLen * 0.6, gloveW / 2 - 0.5 * s);
+    ctx.moveTo(handX + 0.6 * s, -0.8 * s);
+    ctx.lineTo(handX + handW - 0.4 * s, -0.8 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(handX + 0.6 * s, 0.8 * s);
+    ctx.lineTo(handX + handW - 0.4 * s, 0.8 * s);
     ctx.stroke();
 
     ctx.restore();
@@ -543,26 +445,21 @@ function drawArms(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
 function drawCollar(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const s = opts.scale;
   const x = opts.x;
-  const collarY = opts.y - 21 * s;
-  const collarW = 11 * s;
-  const collarH = 3 * s;
+  const collarY = opts.y - 20.5 * s;
+  const collarW = 10 * s;
+  const collarH = 2.5 * s;
 
   // Collar ring base
   ctx.fillStyle = '#8a8a8a';
   ctx.strokeStyle = '#5a5a5a';
-  ctx.lineWidth = 0.6 * s;
+  ctx.lineWidth = 0.5 * s;
   roundRect(ctx, x - collarW / 2, collarY, collarW, collarH, 1.5 * s);
   ctx.fill();
   ctx.stroke();
 
-  // Collar highlight ring (top)
+  // Collar highlight ring (top edge)
   ctx.fillStyle = '#b0b0b0';
-  roundRect(ctx, x - collarW / 2 + 0.8 * s, collarY, collarW - 1.6 * s, 1 * s, 0.5 * s);
-  ctx.fill();
-
-  // Collar shadow (bottom)
-  ctx.fillStyle = '#5a5a5a';
-  roundRect(ctx, x - collarW / 2 + 0.8 * s, collarY + collarH - 1 * s, collarW - 1.6 * s, 1 * s, 0.5 * s);
+  roundRect(ctx, x - collarW / 2 + 0.8 * s, collarY + 0.2 * s, collarW - 1.6 * s, 0.8 * s, 0.4 * s);
   ctx.fill();
 }
 
@@ -573,62 +470,51 @@ function drawCollar(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
 function drawHead(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
   const s = opts.scale;
 
-  // Compute head bob (idle breathing)
+  // Head bob animation
   let headBobY = 0;
   if (opts.state === 'idle') {
-    headBobY = Math.sin(opts.frameIndex * 0.25) * 1.2 * s;
+    headBobY = Math.sin(opts.frameIndex * 0.25) * 1.0 * s;
   }
   if (opts.state === 'walking') {
-    headBobY = Math.sin(opts.frameIndex * 0.5) * 1.0 * s;
+    headBobY = Math.sin(opts.frameIndex * 0.5) * 0.8 * s;
   }
 
   // Head tilt
   let headTilt = 0;
-  if (opts.state === 'drinking') headTilt = 0.18;
-  if (opts.state === 'sleeping') headTilt = 0.35;
-  if (opts.state === 'leaving') headTilt = -0.12;
+  if (opts.state === 'drinking') headTilt = 0.15;
+  if (opts.state === 'sleeping') headTilt = 0.3;
 
-  const headCenterX = opts.x;
-  const headCenterY = opts.y - 32 * s + headBobY;
-  const headRadiusX = 11.5 * s;
-  const headRadiusY = 10.5 * s;
+  const headCx = opts.x;
+  const headCy = opts.y - 28 * s + headBobY;
+  const headR = 7.5 * s;
 
   ctx.save();
-  ctx.translate(headCenterX, headCenterY);
+  ctx.translate(headCx, headCy);
   ctx.rotate(headTilt);
 
-  // ---- Head skin (classic kerbal green, slightly egg-shaped) ----
+  // ---- Head (big round green — classic Kerbal) ----
   ctx.fillStyle = '#7ec850';
   ctx.strokeStyle = '#5a9a30';
-  ctx.lineWidth = 0.8 * s;
-
-  // Draw head with a subtly wider upper half
+  ctx.lineWidth = 0.7 * s;
   ctx.beginPath();
-  // Custom path: slightly wider at top, slightly narrower chin
-  const topWidth = headRadiusX;
-  const bottomWidth = headRadiusX * 0.92;
-  // Top half
-  ctx.ellipse(0, 0.5 * s, topWidth, headRadiusY, 0, Math.PI, 0, true);
-  // Bottom half (slightly narrower)
-  ctx.ellipse(0, 0.5 * s, bottomWidth, headRadiusY, 0, 0, Math.PI, true);
-  ctx.closePath();
+  ctx.arc(0, 0, headR, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  // ---- Subtle head highlight ----
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  // ---- Subtle head highlight (makes it look 3D) ----
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
   ctx.beginPath();
-  ctx.ellipse(-2 * s, -3 * s, 5 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(-2 * s, -2.5 * s, 4 * s, 3 * s, -0.2, 0, Math.PI * 2);
   ctx.fill();
 
-  // ---- Helmet ----
-  drawHelmet(ctx, opts, headRadiusX, s);
+  // ---- Helmet dome ----
+  drawHelmet(ctx, opts, headR, s);
 
   // ---- Facial features ----
-  drawFace(ctx, opts, headRadiusX, s);
+  drawFace(ctx, opts, headR, s);
 
   // ---- Hair tuft ----
-  drawHairTuft(ctx, s);
+  drawHairTuft(ctx, s, headR);
 
   ctx.restore();
 }
@@ -636,137 +522,147 @@ function drawHead(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
 function drawHelmet(
   ctx: CanvasRenderingContext2D,
   _opts: RenderOpts,
-  headRx: number,
+  headR: number,
   s: number,
 ): void {
-  const helmRx = headRx + 1.8 * s;
-  const helmRy = 10.5 * s + 1.8 * s;
+  const domeR = headR + 1.5 * s;
 
-  // Outer helmet dome (subtle — mostly clear "glass")
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 0.7 * s;
+  // Outer helmet dome (translucent arc over top of head)
+  ctx.strokeStyle = 'rgba(200,220,255,0.3)';
+  ctx.lineWidth = 0.6 * s;
   ctx.beginPath();
-  ctx.ellipse(0, 0, helmRx, helmRy, 0, Math.PI, 0);
+  ctx.arc(0, 0, domeR, Math.PI, 0);
   ctx.stroke();
 
-  // Helmet rim/seal at the base of the dome
-  ctx.strokeStyle = 'rgba(200,200,200,0.4)';
-  ctx.lineWidth = 0.5 * s;
+  // Helmet rim / seal where helmet meets collar area
+  ctx.strokeStyle = 'rgba(200,200,200,0.35)';
+  ctx.lineWidth = 0.4 * s;
   ctx.beginPath();
-  // Short arcs at the sides where helmet meets suit
-  ctx.arc(-helmRx + 1 * s, 0.5 * s, 1.5 * s, -0.5, 0.5);
+  ctx.arc(-headR + 1 * s, 0.5 * s, 1.5 * s, -0.5, 0.5);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(helmRx - 1 * s, 0.5 * s, 1.5 * s, Math.PI - 0.5, Math.PI + 0.5);
+  ctx.arc(headR - 1 * s, 0.5 * s, 1.5 * s, Math.PI - 0.5, Math.PI + 0.5);
   ctx.stroke();
 
-  // ---- Visor (semi-transparent blue-tinted arc over upper face) ----
-  const visorCenterY = -3 * s;
-  const visorRx = headRx - 1.5 * s;
-  const visorRy = 10.5 * s - 4 * s;
+  // Visor — faint blue-tinted arc over upper face
+  const visorRx = headR - 1.5 * s;
+  const visorRy = headR - 3 * s;
 
-  // Visor fill — faint blue glass
-  ctx.fillStyle = 'rgba(160, 210, 255, 0.15)';
+  ctx.fillStyle = 'rgba(140,200,255,0.08)';
   ctx.beginPath();
-  ctx.ellipse(0, visorCenterY, visorRx, visorRy, 0, Math.PI, 0);
+  ctx.ellipse(0, -1 * s, visorRx, visorRy, 0, Math.PI, 0);
   ctx.closePath();
   ctx.fill();
 
-  // Visor rim
-  ctx.strokeStyle = 'rgba(200, 230, 255, 0.35)';
-  ctx.lineWidth = 0.5 * s;
+  // Visor gleam (white reflection)
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.beginPath();
-  ctx.ellipse(0, visorCenterY, visorRx, visorRy, 0, Math.PI, 0);
-  ctx.stroke();
-
-  // ---- White reflection gleam on visor ----
-  // Main gleam
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.beginPath();
-  ctx.ellipse(-3.5 * s, -7.5 * s, 3 * s, 1.6 * s, -0.25, 0, Math.PI * 2);
+  ctx.ellipse(-3 * s, -6 * s, 2.5 * s, 1.2 * s, -0.2, 0, Math.PI * 2);
   ctx.fill();
 
   // Secondary smaller gleam
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
   ctx.beginPath();
-  ctx.ellipse(-5.5 * s, -5 * s, 1.4 * s, 0.9 * s, -0.35, 0, Math.PI * 2);
+  ctx.ellipse(-5 * s, -4 * s, 1.2 * s, 0.7 * s, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Antenna on top of helmet: thin line with a small ball. */
+function drawAntenna(
+  ctx: CanvasRenderingContext2D,
+  s: number,
+  headR: number,
+): void {
+  // Antenna stalk (thin curved line)
+  ctx.strokeStyle = '#999';
+  ctx.lineWidth = 0.4 * s;
+  ctx.beginPath();
+  ctx.moveTo(0, -headR - 1 * s);
+  ctx.quadraticCurveTo(2 * s, -headR - 5 * s, 1 * s, -headR - 7 * s);
+  ctx.stroke();
+
+  // Antenna tip ball
+  ctx.fillStyle = '#cc4444';
+  ctx.beginPath();
+  ctx.arc(1 * s, -headR - 7 * s, 1.2 * s, 0, Math.PI * 2);
   ctx.fill();
 
-  // Top edge gleam
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  // Antenna ball highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
   ctx.beginPath();
-  ctx.ellipse(1 * s, -helmRy + 1 * s, 4 * s, 1 * s, 0.1, 0, Math.PI * 2);
+  ctx.arc(0.5 * s, -headR - 7.5 * s, 0.5 * s, 0, Math.PI * 2);
   ctx.fill();
 }
 
 function drawFace(
   ctx: CanvasRenderingContext2D,
   opts: RenderOpts,
-  _headRx: number,
+  _headR: number,
   s: number,
 ): void {
   const { courage, stupidity } = opts;
 
   // ---- Eyes ----
-  const eyeCenterY = -2 * s;
-  const eyeOffsetX = 4.8 * s;
-  const eyeW = 3.2 * s;
-  const eyeH = 4 * s;
+  const eyeY = -1.5 * s;
+  const eyeOffX = 3.2 * s;
+  const eyeW = 2.8 * s;
+  const eyeH = 3.2 * s;
 
-  // Blink timing: every ~60 frames, blink for 2 frames
-  const isBlinking = opts.state === 'idle' && (opts.frameIndex % 60 >= 58);
+  const isBlinking = opts.state === 'idle' && (opts.frameIndex % 60 >= 57);
   const isSleeping = opts.state === 'sleeping';
-  const isStretching = opts.state === 'stretching';
-  const eyesClosed = isSleeping || isBlinking || (isStretching && opts.frameIndex % 20 < 3);
+  const eyesClosed = isSleeping || isBlinking;
+  const isReacting = opts.state === 'reacting';
 
   if (eyesClosed) {
-    // Closed eyes — gentle curved lines
+    // Closed eyes — gentle curved slits
     ctx.strokeStyle = '#3a6a20';
-    ctx.lineWidth = 0.9 * s;
+    ctx.lineWidth = 0.8 * s;
     ctx.lineCap = 'round';
     [-1, 1].forEach((side) => {
       ctx.beginPath();
-      ctx.arc(side * eyeOffsetX, eyeCenterY, eyeW * 0.75, 0.15, Math.PI - 0.15);
+      ctx.arc(side * eyeOffX, eyeY, eyeW * 0.7, 0.15, Math.PI - 0.15);
       ctx.stroke();
     });
   } else {
-    // Open eyes — large white ovals
+    // Open eyes — large white ovals (reacting = wider)
+    const eyeScale = isReacting ? 1.2 : 1.0;
+
     [-1, 1].forEach((side) => {
       // Eye white
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#5a9a30';
-      ctx.lineWidth = 0.4 * s;
+      ctx.lineWidth = 0.3 * s;
       ctx.beginPath();
-      ctx.ellipse(side * eyeOffsetX, eyeCenterY, eyeW, eyeH, 0, 0, Math.PI * 2);
+      ctx.ellipse(side * eyeOffX, eyeY, eyeW * eyeScale, eyeH * eyeScale, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
-      // Subtle eye shadow (top of eye white)
-      ctx.fillStyle = 'rgba(200,200,220,0.3)';
+      // Subtle shadow at top of eye
+      ctx.fillStyle = 'rgba(200,200,220,0.25)';
       ctx.beginPath();
-      ctx.ellipse(side * eyeOffsetX, eyeCenterY - 1 * s, eyeW * 0.8, eyeH * 0.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(side * eyeOffX, eyeY - 1 * s, eyeW * 0.7 * eyeScale, eyeH * 0.35 * eyeScale, 0, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Pupils — shifted based on courage/stupidity personality
-    const pupilShiftX = (courage - 0.5) * 1.6 * s;
-    const pupilShiftY = (stupidity - 0.5) * 1.1 * s;
-    const pupilR = 1.2 * s;
+    // Pupils — oscillate left/right based on frameIndex (cute look-around)
+    const lookX = Math.sin(opts.frameIndex * 0.08) * 1.8 * s;
+    // Stupidity affects pupil size: stupider = larger, more vacant eyes
+    const pupilSize = 1.0 + (stupidity - 0.5) * 0.5;
+    const pupilR = Math.min(Math.max(pupilSize, 0.7), 1.4) * s;
 
     [-1, 1].forEach((side) => {
-      const px = side * eyeOffsetX + pupilShiftX;
-      const py = eyeCenterY + pupilShiftY;
+      const px = side * eyeOffX + lookX;
 
       // Pupil
       ctx.fillStyle = '#111111';
       ctx.beginPath();
-      ctx.arc(px, py, pupilR, 0, Math.PI * 2);
+      ctx.arc(px, eyeY, pupilR, 0, Math.PI * 2);
       ctx.fill();
 
       // Pupil highlight (catch light)
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(px - 0.35 * s, py - 0.5 * s, 0.35 * s, 0, Math.PI * 2);
+      ctx.arc(px - 0.3 * s, eyeY - 0.4 * s, 0.3 * s, 0, Math.PI * 2);
       ctx.fill();
     });
   }
@@ -775,14 +671,14 @@ function drawFace(
   drawEyebrows(ctx, opts, s, eyesClosed);
 
   // ---- Mouth ----
-  drawMouth(ctx, opts, s, isSleeping);
+  drawMouth(ctx, opts, s, isSleeping, isReacting);
 
   // ---- Optional blush for happy/excited kerbals ----
   if (courage > 0.65 && !isSleeping) {
-    ctx.fillStyle = 'rgba(255, 150, 150, 0.12)';
+    ctx.fillStyle = 'rgba(255, 150, 150, 0.1)';
     [-1, 1].forEach((side) => {
       ctx.beginPath();
-      ctx.ellipse(side * 6.5 * s, 1.5 * s, 2 * s, 1.2 * s, 0, 0, Math.PI * 2);
+      ctx.ellipse(side * 5.5 * s, 1.5 * s, 1.8 * s, 1 * s, 0, 0, Math.PI * 2);
       ctx.fill();
     });
   }
@@ -795,32 +691,32 @@ function drawEyebrows(
   eyesClosed: boolean,
 ): void {
   const { courage } = opts;
-  const browY = -6.5 * s;
-  const browOffsetX = 4.8 * s;
-  const browLen = 2.8 * s;
+  const browY = -5.5 * s;
+  const browOffX = 3.2 * s;
+  const browLen = 2.5 * s;
 
   ctx.strokeStyle = '#3a6020';
-  ctx.lineWidth = 0.7 * s;
+  ctx.lineWidth = 0.6 * s;
   ctx.lineCap = 'round';
 
   [-1, 1].forEach((side) => {
-    const bx = side * browOffsetX;
+    const bx = side * browOffX;
     ctx.beginPath();
 
     if (eyesClosed && courage > 0.5) {
-      // Relaxed, content
+      // Relaxed content brows
       ctx.moveTo(bx - browLen, browY);
       ctx.quadraticCurveTo(bx, browY - 0.5 * s, bx + browLen, browY);
     } else if (courage > 0.6) {
-      // Raised, happy
+      // Raised happy brows
       ctx.moveTo(bx - browLen, browY);
-      ctx.quadraticCurveTo(bx, browY - 1.8 * s, bx + browLen, browY);
+      ctx.quadraticCurveTo(bx, browY - 1.5 * s, bx + browLen, browY);
     } else if (courage < 0.35) {
       // Angled inward — worried
-      ctx.moveTo(bx - browLen, browY + 0.8 * s);
-      ctx.quadraticCurveTo(bx, browY + 0.3 * s, bx + browLen, browY - 0.2 * s);
+      ctx.moveTo(bx - browLen, browY + 0.6 * s);
+      ctx.quadraticCurveTo(bx, browY + 0.2 * s, bx + browLen, browY - 0.2 * s);
     } else {
-      // Neutral, flat
+      // Neutral flat brows
       ctx.moveTo(bx - browLen, browY);
       ctx.lineTo(bx + browLen, browY);
     }
@@ -834,43 +730,46 @@ function drawMouth(
   opts: RenderOpts,
   s: number,
   isSleeping: boolean,
+  isReacting: boolean,
 ): void {
   const { courage } = opts;
-  const mouthY = 3.5 * s;
+  const mouthY = 3 * s;
 
   ctx.strokeStyle = '#3a6a20';
-  ctx.lineWidth = 0.7 * s;
+  ctx.lineWidth = 0.6 * s;
   ctx.lineCap = 'round';
   ctx.beginPath();
 
   if (isSleeping) {
-    // Small slightly open "o" mouth
+    // Small open "o" mouth while sleeping
     ctx.fillStyle = '#2a5010';
-    ctx.ellipse(0, mouthY + 0.5 * s, 1.6 * s, 1.2 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, mouthY, 1.4 * s, 1.0 * s, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#3a6a20';
-    ctx.lineWidth = 0.5 * s;
+    ctx.stroke();
+  } else if (isReacting) {
+    // Surprised open mouth (wider)
+    ctx.fillStyle = '#2a5010';
+    ctx.ellipse(0, mouthY, 2.8 * s, 2.2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
   } else if (opts.state === 'stretching') {
-    // Big yawn-like open mouth
+    // Big yawn mouth
     ctx.fillStyle = '#2a5010';
-    ctx.ellipse(0, mouthY + 0.5 * s, 3.5 * s, 2.5 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, mouthY, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#3a6a20';
-    ctx.lineWidth = 0.5 * s;
     ctx.stroke();
   } else if (courage > 0.6) {
     // Big happy grin
-    ctx.arc(0, mouthY - 1 * s, 4.2 * s, 0.15, Math.PI - 0.15);
+    ctx.arc(0, mouthY - 1 * s, 3.5 * s, 0.15, Math.PI - 0.15);
   } else if (courage < 0.35) {
-    // Worried wavy mouth
-    ctx.arc(0, mouthY + 4.5 * s, 4 * s, Math.PI + 0.35, -0.35);
+    // Worried frown
+    ctx.arc(0, mouthY + 3.5 * s, 3.2 * s, Math.PI + 0.35, -0.35);
   } else {
-    // Neutral slight smile
-    ctx.arc(0, mouthY - 0.2 * s, 3.2 * s, 0.2, Math.PI - 0.2);
+    // Slight neutral smile
+    ctx.arc(0, mouthY - 0.2 * s, 2.8 * s, 0.2, Math.PI - 0.2);
   }
 
-  if (!isSleeping && opts.state !== 'stretching') {
+  if (!isSleeping && !isReacting && opts.state !== 'stretching') {
     ctx.stroke();
   }
 }
@@ -878,20 +777,22 @@ function drawMouth(
 function drawHairTuft(
   ctx: CanvasRenderingContext2D,
   s: number,
+  headR: number,
 ): void {
+  // Small tuft of hair sticking out from top of head
   ctx.fillStyle = '#3a3a2a';
   ctx.beginPath();
-  ctx.moveTo(-1.2 * s, -10.5 * s);
-  ctx.quadraticCurveTo(1.5 * s, -15.5 * s, 3.5 * s, -10 * s);
-  ctx.quadraticCurveTo(0.5 * s, -8 * s, -1.2 * s, -10.5 * s);
+  ctx.moveTo(-1 * s, -headR + 0.5 * s);
+  ctx.quadraticCurveTo(2 * s, -headR - 5 * s, 3 * s, -headR + 1 * s);
+  ctx.quadraticCurveTo(0.5 * s, -headR + 2 * s, -1 * s, -headR + 0.5 * s);
   ctx.fill();
 
-  // Hair tuft highlight
+  // Subtle highlight on tuft
   ctx.fillStyle = 'rgba(80,80,50,0.4)';
   ctx.beginPath();
-  ctx.moveTo(-0.3 * s, -10.5 * s);
-  ctx.quadraticCurveTo(1.2 * s, -14 * s, 2.5 * s, -10.5 * s);
-  ctx.quadraticCurveTo(1 * s, -9.5 * s, -0.3 * s, -10.5 * s);
+  ctx.moveTo(-0.2 * s, -headR + 0.5 * s);
+  ctx.quadraticCurveTo(1.5 * s, -headR - 3.5 * s, 2.2 * s, -headR + 0.5 * s);
+  ctx.quadraticCurveTo(1 * s, -headR + 1.2 * s, -0.2 * s, -headR + 0.5 * s);
   ctx.fill();
 }
 
@@ -1019,22 +920,41 @@ function drawSleepZzz(
 // ---------------------------------------------------------------------------
 
 function drawKerbal(ctx: CanvasRenderingContext2D, opts: RenderOpts): void {
-  // Walking body bounce (upper body only, legs stay planted)
+  // Walking body bounce (upper body only)
   let bodyBob = 0;
   if (opts.state === 'walking') {
-    bodyBob = Math.sin(opts.frameIndex * 0.5) * 1.5 * opts.scale;
+    bodyBob = Math.sin(opts.frameIndex * 0.5) * 1.2 * opts.scale;
   }
 
   if (opts.state === 'sitting') {
-    // Sitting pose: bent legs, lowered upper body (chair drawn at desk level)
-    const loweredOpts: RenderOpts = { ...opts, y: opts.y - 5 * opts.scale };
-    drawShadow(ctx, opts);
-    drawSittingLegs(ctx, opts);
-    drawBody(ctx, loweredOpts);
-    drawArms(ctx, { ...loweredOpts, state: 'typing' as SpriteState });
-    drawCollar(ctx, loweredOpts);
-    drawHead(ctx, loweredOpts);
-    drawAccessories(ctx, loweredOpts);
+    // Sitting pose: bent legs, lowered upper body, typing arms
+    // The upper body renders BEHIND the desk (zPriority=0 < desk=1), so the
+    // desk naturally hides everything below its surface (Y ≈ 586). We raise
+    // the upper body just enough so the head and collar peek above the desk.
+    // offset=30 → head emerges at Y≈563, body top at Y≈584; ~12px of head +
+    // collar visible above desk surface, body fully hidden behind desk front face.
+    const loweredOpts: RenderOpts = { ...opts, y: opts.y - 30 * opts.scale };
+
+    if (opts.renderPart === 'upper') {
+      // Upper body only — renders ABOVE the desk (after desk in z-order)
+      drawBody(ctx, loweredOpts);
+      drawArms(ctx, { ...loweredOpts, state: 'typing' as SpriteState });
+      drawCollar(ctx, loweredOpts);
+      drawHead(ctx, loweredOpts);
+      drawAccessories(ctx, loweredOpts);
+    } else {
+      // Full sitting pose or 'lower' part — renders BEHIND the desk (before desk in z-order)
+      drawShadow(ctx, opts);
+      drawSittingLegs(ctx, opts);
+      if (!opts.renderPart || opts.renderPart === 'full') {
+        // Full: draw upper body too
+        drawBody(ctx, loweredOpts);
+        drawArms(ctx, { ...loweredOpts, state: 'typing' as SpriteState });
+        drawCollar(ctx, loweredOpts);
+        drawHead(ctx, loweredOpts);
+        drawAccessories(ctx, loweredOpts);
+      }
+    }
     return;
   }
 
@@ -1110,8 +1030,10 @@ export class KerbalSprite {
         this.x = this.movement.targetX;
         this.y = this.movement.targetY;
         this.movement = null;
-        // Revert walking to idle after reaching destination
-        if (this.state === 'walking' || this.state === 'entering' || this.state === 'leaving') {
+        // Arrived at destination — sit if entering, otherwise idle
+        if (this.state === 'entering') {
+          this.state = 'sitting';
+        } else if (this.state === 'walking' || this.state === 'leaving') {
           this.state = 'idle';
         }
       }
@@ -1124,7 +1046,7 @@ export class KerbalSprite {
   }
 
   /** Draw the Kerbal onto a Canvas 2D context. `timeOfDay` is 0..1 (0=midnight, 0.5=noon). */
-  render(ctx: CanvasRenderingContext2D, _timeOfDay: number): void {
+  render(ctx: CanvasRenderingContext2D, _timeOfDay: number, renderPart?: 'full' | 'lower' | 'upper'): void {
     const soul = this.soul;
     // Resolve courage / stupidity from soul; fallback to sensible defaults
     const courage = typeof soul.courage === 'number' ? soul.courage : 0.5;
@@ -1139,6 +1061,7 @@ export class KerbalSprite {
       suitColor: this.suitColor,
       courage,
       stupidity,
+      renderPart,
     };
 
     drawKerbal(ctx, opts);

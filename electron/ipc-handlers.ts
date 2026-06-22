@@ -2,6 +2,18 @@ import { ipcMain, app } from 'electron';
 import fs from 'fs';
 import path from 'path';
 
+// DIAGNOSTIC: confirm IPC handler module loaded
+console.log('[ipc-handlers] module loaded');
+
+// DIAGNOSTIC: mirror to log file
+const logFile = path.join(app.getPath('userData'), 'main.log');
+function mainLog(...args: any[]) {
+  const line = `[${new Date().toISOString()}] ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}\n`;
+  try { fs.appendFileSync(logFile, line); } catch {}
+  console.log(...args);
+}
+mainLog('[ipc-handlers] module loaded');
+
 const AGENTS_DIR = path.join(app.getPath('userData'), 'agents_data');
 const CONFIG_DIR = path.join(app.getPath('userData'), 'config');
 
@@ -85,4 +97,89 @@ ipcMain.handle('config:setLLM', (_event, config: any) => {
 // App version
 ipcMain.handle('app:getVersion', () => {
   return app.getVersion();
+});
+
+// Binary file write (for docx and other binary outputs)
+ipcMain.handle('file:writeBinary', (_event, filePath: string, base64Content: string) => {
+  try {
+    const dir = path.dirname(filePath);
+    ensureDir(dir);
+    const buffer = Buffer.from(base64Content, 'base64');
+    fs.writeFileSync(filePath, buffer);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+// Default documents directory for kerbal-generated files
+ipcMain.handle('app:getDefaultDocsDir', () => {
+  return path.join(app.getPath('documents'), 'KerbOffice_Reports');
+});
+
+// ---------------------------------------------------------------------------
+// Kerbal soul loader — reads bundled .md files from the asar.
+// Renderer-side `fetch('/kerbal-souls/foo.md')` fails on file:// origin in the
+// packaged EXE, so we expose this through IPC.
+// ---------------------------------------------------------------------------
+ipcMain.handle('kerbal-soul:read', (_event, name: string): string | null => {
+  try {
+    // dist-electron/main.js sits in app.asar/dist-electron/, souls live at
+    // app.asar/dist/kerbal-souls/{name}.md
+    const soulPath = path.join(__dirname, '..', 'dist', 'kerbal-souls', `${encodeURIComponent(name)}.md`);
+    mainLog('[kerbal-soul:read]', name, '| path:', soulPath);
+    const content = fs.readFileSync(soulPath, 'utf-8');
+    mainLog('[kerbal-soul:read] OK,', content.length, 'bytes');
+    return content;
+  } catch (err: any) {
+    mainLog('[kerbal-soul:read] FAILED for', name, ':', err?.message ?? err);
+    return null;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI fetch proxy — routes HTTP requests through the main process
+// to bypass file:// origin restrictions on fetch() in the renderer.
+// ---------------------------------------------------------------------------
+
+interface AiFetchParams {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
+interface AiFetchResult {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  body: string;
+}
+
+ipcMain.handle('ai:fetch', async (_event, params: AiFetchParams): Promise<AiFetchResult> => {
+  // DIAGNOSTIC: log every IPC fetch call
+  mainLog('[main ai:fetch]', params.method, params.url, '| body len:', (params.body ?? '').length);
+  try {
+    const response = await fetch(params.url, {
+      method: params.method,
+      headers: params.headers,
+      body: params.body ?? undefined,
+    });
+    const body = await response.text();
+    mainLog('[main ai:fetch] OK status', response.status, '| body len:', body.length);
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      body,
+    };
+  } catch (err: any) {
+    mainLog('[main ai:fetch] FAILED:', err?.message ?? err);
+    return {
+      ok: false,
+      status: 0,
+      statusText: err?.message ?? String(err),
+      body: '',
+    };
+  }
 });

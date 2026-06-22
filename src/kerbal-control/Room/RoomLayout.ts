@@ -203,6 +203,27 @@ export const DOOR_POSITION = { x: 86, y: 68 };
 export const BRIEFING_POSITION = { x: 70, y: 80 };
 
 // ---------------------------------------------------------------------------
+// Scenery window (left wall)
+// ---------------------------------------------------------------------------
+
+/**
+ * Position of the KSC scenery window on the back wall.
+ * X/Y as percentage-of-canvas (0–100).
+ *
+ * Wide panoramic rectangle stretching sideways across most of the room,
+ * ending near the door on the right side.
+ */
+export const WINDOW_POSITION = { x: 2, y: 12 };
+
+/**
+ * Dimensions of the scenery window as percentage-of-canvas.
+ * width=66, height=34 makes it a wide panoramic window stretching
+ * from x=2% to x=68% (nearly reaching the door at x=86%),
+ * with a moderate height from y=12% to y=46%.
+ */
+export const WINDOW_DIMENSIONS = { width: 66, height: 34 };
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

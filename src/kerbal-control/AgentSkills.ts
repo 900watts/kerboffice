@@ -1,7 +1,7 @@
 /**
  * AgentSkills — Tool registry for kerbal agent capabilities.
  * Each kerbal gets role-specific tools. Web search is universal.
- * Tools execute real actions (web search, URL fetch, calculations).
+ * Tools execute real actions (web search, URL fetch, calculations, time checks).
  */
 
 // ---------------------------------------------------------------------------
@@ -115,6 +115,7 @@ function missionChecklist(): string {
   ];
   return 'Standard pre-launch checklist:\n' + steps.join('\n');
 }
+
 
 // ---------------------------------------------------------------------------
 // Tool catalog

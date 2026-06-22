@@ -185,7 +185,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
 
   let bubbleClass = 'bg-[#2A2A2A] rounded-tl-sm';
   if (isUser) {
-    bubbleClass = 'bg-[#3A3A3A] rounded-tr-sm';
+    bubbleClass = 'bg-[#3A3A3A] rounded-tr-sm pl-[31px]';
   } else if (isBanter) {
     bubbleClass = 'bg-[#2A2A35] rounded-tl-sm border-l-2 border-purple-500/30';
   }
@@ -605,7 +605,14 @@ const ChatBar: React.FC<ChatBarProps> = ({ onMessageSent, banterMessages, proact
       }
 
       console.error(`[ChatBar] Failed to get response from ${kerbalState.name}:`, err);
-      addSystemMessage('mc.kerbalCantRespond', kerbalState.name);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      addMessage({
+        id: uid(),
+        role: 'system',
+        senderName: 'Mission Control',
+        content: `${kerbalState.name}: ${errorMsg}`,
+        timestamp: Date.now(),
+      });
       growthSystem.tick(kerbalState.name, 'error_response');
       return null;
     }
@@ -779,7 +786,7 @@ const ChatBar: React.FC<ChatBarProps> = ({ onMessageSent, banterMessages, proact
             disabled={isProcessing}
             className="flex-1 bg-transparent text-white placeholder-gray-500 text-sm
                        outline-none border-none focus:ring-0 disabled:opacity-50
-                       disabled:cursor-not-allowed"
+                       disabled:cursor-not-allowed pl-4"
             aria-label={t('mc.messageInput')}
             autoComplete="off"
             spellCheck={false}

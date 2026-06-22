@@ -4,6 +4,13 @@
 
 import { growthSystem, type GrowthData } from './GrowthSystem';
 
+// In Electron EXE, the renderer can't fetch('/kerbal-souls/foo.md') from a
+// file:// origin — the path resolves to nothing. The preload bridge exposes
+// a readKerbalSoul(name) IPC that reads the bundled .md from the asar instead.
+interface ElectronSoulAPI {
+  readKerbalSoul: (name: string) => Promise<string | null>;
+}
+
 // ── Interfaces ──────────────────────────────────────────────────────────────
 
 export interface KerbalSoul {
@@ -97,12 +104,27 @@ export class SoulLoader {
    * Soul files are served from `/kerbal-souls/{name}.md`.
    */
   static async load(name: string): Promise<KerbalSoul> {
-    const response = await fetch(`/kerbal-souls/${encodeURIComponent(name)}.md`);
-    if (!response.ok) {
-      throw new Error(`SoulLoader: failed to load soul for "${name}" (HTTP ${response.status})`);
+    let rawMarkdown: string;
+    // Soul filenames on disk are lowercase (gene.md, linus.md, ...) but
+    // kerbalStore returns names with capital first letter (Gene, Linus, ...).
+    // Normalize so the IPC lookup matches the bundled file.
+    const slug = name.toLowerCase();
+    const electronSoulApi = (window as unknown as { electronAPI?: ElectronSoulAPI }).electronAPI;
+    if (electronSoulApi?.readKerbalSoul) {
+      // Packaged Electron EXE — read via IPC bridge
+      const content = await electronSoulApi.readKerbalSoul(slug);
+      if (content == null) {
+        throw new Error(`SoulLoader: failed to load soul for "${name}" via IPC`);
+      }
+      rawMarkdown = content;
+    } else {
+      // Vite dev server (or browser) — fetch the relative URL
+      const response = await fetch(`/kerbal-souls/${encodeURIComponent(slug)}.md`);
+      if (!response.ok) {
+        throw new Error(`SoulLoader: failed to load soul for "${name}" (HTTP ${response.status})`);
+      }
+      rawMarkdown = await response.text();
     }
-
-    const rawMarkdown = await response.text();
 
     const soul: KerbalSoul = {
       name,

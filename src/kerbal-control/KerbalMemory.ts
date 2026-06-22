@@ -2,6 +2,8 @@
 // Stores conversation summaries and extracted facts for AI prompt injection
 // Plain object export (not a class)
 
+import { UserProfile } from './UserProfile';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface MemoryEntry {
@@ -26,6 +28,13 @@ export interface BuiltMemoryContext {
 const STORAGE_PREFIX = 'kerbal-memory:';
 const MAX_SUMMARIES = 10;
 const MAX_FACTS = 20;
+
+// ── Compaction thresholds ──────────────────────────────────────────────────
+// When memory is "about to be full", auto-compact to free up room
+const COMPACT_SUMMARIES_THRESHOLD = 8;   // compact at 8/10 summaries
+const COMPACT_FACTS_THRESHOLD = 16;      // compact at 16/20 facts
+const COMPACT_KEEP_FACT_RATIO = 0.6;     // keep 60% of facts during compaction
+const COMPACT_MAX_CHARS = 2048;          // compact if serialized > 2KB
 
 // ── Fact extraction patterns ────────────────────────────────────────────────
 
@@ -82,26 +91,96 @@ export const KerbalMemory = {
     }
   },
 
-  /** Append a conversation summary (capped at MAX_SUMMARIES). */
+  /** Auto-compact if memory is getting full. Returns true if compacted. */
+  maybeCompact(memory: AgentMemory): boolean {
+    let didCompact = false;
+
+    // ── Compact summaries ────────────────────────────────────────────────
+    // When at threshold, merge oldest half into one consolidated entry
+    if (memory.summaries.length >= COMPACT_SUMMARIES_THRESHOLD) {
+      const splitIdx = Math.floor(memory.summaries.length / 2);
+      const oldHalf = memory.summaries.slice(0, splitIdx);
+      const newHalf = memory.summaries.slice(splitIdx);
+      const consolidated = `[Consolidated] ${oldHalf.join('; ')}`;
+      memory.summaries = [consolidated, ...newHalf];
+      didCompact = true;
+    }
+
+    // ── Compact facts ────────────────────────────────────────────────────
+    // When at threshold, keep newest COMPACT_KEEP_FACT_RATIO entries
+    const factKeys = Object.keys(memory.facts);
+    if (factKeys.length >= COMPACT_FACTS_THRESHOLD) {
+      const keepCount = Math.max(3, Math.floor(factKeys.length * COMPACT_KEEP_FACT_RATIO));
+      const keepKeys = factKeys.slice(-keepCount); // newest entries (insertion order = newest last)
+      const kept: Record<string, string> = {};
+      for (const k of keepKeys) {
+        kept[k] = memory.facts[k];
+      }
+      memory.facts = kept;
+      didCompact = true;
+    }
+
+    // ── Size check ───────────────────────────────────────────────────────
+    // If serialized form is still too large, do additional trimming
+    if (!didCompact) {
+      const size = JSON.stringify(memory).length;
+      if (size > COMPACT_MAX_CHARS) {
+        // Trim summaries: keep only the last 4 + 1 consolidated for older ones
+        if (memory.summaries.length > 5) {
+          const splitIdx = memory.summaries.length - 4;
+          const oldPart = memory.summaries.slice(0, splitIdx);
+          const newPart = memory.summaries.slice(splitIdx);
+          memory.summaries = [`[Consolidated] ${oldPart.join('; ')}`, ...newPart];
+        }
+        // Trim facts: keep only newest 10
+        const factKeys2 = Object.keys(memory.facts);
+        if (factKeys2.length > 10) {
+          const keepKeys2 = factKeys2.slice(-10);
+          const kept2: Record<string, string> = {};
+          for (const k of keepKeys2) {
+            kept2[k] = memory.facts[k];
+          }
+          memory.facts = kept2;
+        }
+        didCompact = true;
+      }
+    }
+
+    // After compaction, re-check serialized size one more time
+    if (didCompact) {
+      const finalSize = JSON.stringify(memory).length;
+      if (finalSize > COMPACT_MAX_CHARS) {
+        // Last resort: truncate longest summary and fact strings
+        if (memory.summaries.length > 0) {
+          const longestIdx = memory.summaries.reduce((maxIdx, s, i, arr) =>
+            s.length > arr[maxIdx].length ? i : maxIdx, 0);
+          memory.summaries[longestIdx] = memory.summaries[longestIdx].slice(0, 200) + '…';
+        }
+        const truncKeys = Object.entries(memory.facts);
+        for (const [k, v] of truncKeys) {
+          if (v.length > 150) {
+            memory.facts[k] = v.slice(0, 150) + '…';
+          }
+        }
+      }
+    }
+
+    return didCompact;
+  },
+
+  /** Append a conversation summary — auto-compacts before saving. */
   addSummary(name: string, summary: string): void {
     const memory = this.load(name);
     memory.summaries.push(summary);
-    if (memory.summaries.length > MAX_SUMMARIES) {
-      memory.summaries = memory.summaries.slice(-MAX_SUMMARIES);
-    }
+    this.maybeCompact(memory);
     this.save(name, memory);
   },
 
-  /** Store a fact (key-value, capped at MAX_FACTS). */
+  /** Store a fact (key-value) — auto-compacts before saving. */
   addFact(name: string, key: string, value: string): void {
     const memory = this.load(name);
     memory.facts[key] = value;
-    // Evict oldest key if over limit
-    const keys = Object.keys(memory.facts);
-    if (keys.length > MAX_FACTS) {
-      const oldestKey = keys[0];
-      delete memory.facts[oldestKey];
-    }
+    this.maybeCompact(memory);
     this.save(name, memory);
   },
 
@@ -122,6 +201,7 @@ export const KerbalMemory = {
   /** Build a full markdown memory context for AI prompt injection. */
   buildMemoryContext(name: string): BuiltMemoryContext {
     const memory = this.load(name);
+    const userCtx = UserProfile.buildContext();
 
     const summaryBlock = memory.summaries.length > 0
       ? `## Previous Conversations\n${memory.summaries.map((s, i) => `- (${i + 1}) ${s}`).join('\n')}`
@@ -131,10 +211,13 @@ export const KerbalMemory = {
       ? `## Known Facts about User\n${Object.entries(memory.facts).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`
       : '## Known Facts about User\nNothing specific known yet.';
 
+    const parts = [summaryBlock, factsBlock];
+    if (userCtx) parts.push(userCtx);
+
     return {
       summaryBlock,
       factsBlock,
-      full: `${summaryBlock}\n\n${factsBlock}`,
+      full: parts.join('\n\n'),
     };
   },
 
