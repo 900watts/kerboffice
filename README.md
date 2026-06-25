@@ -23,14 +23,15 @@
 
 ## Quick Start (Windows)
 
-1. Download the latest `KerbOffice-0.1.0-win32-x64.zip` from the [Releases](../../releases) page.
-2. Extract to any folder.
-3. Run `KerbOffice.exe`.
-4. Open the phone (right side of the room) → Settings → AI Provider.
-5. Pick **Ollama (Local)** if you have Ollama running, or paste an API key for any cloud provider.
-6. Send a message in the chat bar — talk to the kerbals.
+1. Download the latest `KerbOffice.exe` from the [Releases](../../releases) page — the binary is fully self-contained.
+2. Double-click it to run. No installation, no extraction.
+3. Open the phone (right side of the room) → Settings → AI Provider.
+4. Pick **Ollama (Local)** if you have Ollama running, or paste an API key for any cloud provider.
+5. Send a message in the chat bar — talk to the kerbals.
 
 For macOS / Linux: build from source (see below).
+
+> **Note**: The Windows release ships as a single `KerbOffice.exe` (≈ 169 MB) — the entire frontend, IPC bridge, soul files, and Ollama support are bundled inside via Electron's asar archive. You don't need to extract anything. Just download, double-click, run.
 
 ---
 

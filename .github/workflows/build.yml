@@ -47,24 +47,11 @@ jobs:
             --prune=true `
             --ignore="\.git|\.github|node_modules/\.cache|src|electron|scripts|vite\.config\.ts|tsconfig\.*.json"
 
-      - name: Create ZIP archive
-        run: |
-          Compress-Archive -Path "release\KerbOffice-${{ matrix.platform }}-${{ matrix.arch }}\*" `
-            -DestinationPath "release\KerbOffice-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.zip" `
-            -Force
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: KerbOffice-${{ matrix.platform }}-${{ matrix.arch }}
           path: release\KerbOffice-${{ matrix.platform }}-${{ matrix.arch }}\*
-          if-no-files-found: error
-
-      - name: Upload ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          name: KerbOffice-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.zip
-          path: release\KerbOffice-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   release:
@@ -81,5 +68,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            KerbOffice*/*.zip
+            KerbOffice*/*.exe
           generate_release_notes: true
