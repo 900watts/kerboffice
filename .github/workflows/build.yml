@@ -45,7 +45,7 @@ jobs:
             --overwrite `
             --asar `
             --prune=true `
-            --ignore="\.git|\.github|node_modules/\.cache|src|electron|scripts|vite\.config\.ts|tsconfig\.*.json"
+            --ignore="^\/\.git|^\/\.github|^\/node_modules\/\.cache|^\/src|^\/electron|^\/scripts|^\/dist-electron\/\.tmp|^\/tsconfig.*\.json$|^\/vite\.config\.ts$|^\/release"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
